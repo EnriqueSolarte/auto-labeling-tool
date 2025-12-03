@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.pytest_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Type checker caches
+.mypy_cache/
+.pyre/
+.pytype/
+
+# C extensions
+*.so
+
+# Jupyter artifacts
+.ipynb_checkpoints/
+
+# Cython debug symbols
+cython_debug/
+
+# Project-specific generated data
+/data/
