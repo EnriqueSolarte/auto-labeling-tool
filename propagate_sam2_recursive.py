@@ -76,11 +76,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--async-loading",
         action="store_true",
+        default=True,
         help="Stream frames asynchronously while initializing the predictor.",
     )
     parser.add_argument(
         "--offload-video-to-cpu",
         action="store_true",
+        default=True,
         help="Keep frames on CPU in the inference state to save GPU memory.",
     )
     parser.add_argument(
@@ -280,17 +282,6 @@ def main() -> None:
         obj_pos = obj_ids.index(args.object_id)
         frame = read_frame(frame_paths[out_idx])
         overlay = render_overlay(frame, mask_scores[obj_pos])
-        cv2.putText(
-            overlay,
-            f"Frame {out_idx+1}/{len(frame_paths)}",
-            (10, 24),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
-        cv2.imshow(display_window, overlay)
         if args.samples_per_mask > 0:
             sampled_points = sample_points_from_mask(
                 mask_scores[obj_pos],
@@ -311,6 +302,26 @@ def main() -> None:
                 predictor.propagate_in_video_preflight(inference_state)
             else:
                 print(f"No new points sampled on frame {out_idx}; keeping previous prompts.")
+        if current_points:
+            for x, y in current_points:
+                cv2.circle(
+                    overlay,
+                    (int(round(x)), int(round(y))),
+                    3,
+                    (0, 255, 0),
+                    -1,
+                )
+        cv2.putText(
+            overlay,
+            f"Frame {out_idx+1}/{len(frame_paths)}",
+            (10, 24),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.imshow(display_window, overlay)
         key = cv2.waitKey(1) & 0xFF
         if key in (27, ord("q")):
             break

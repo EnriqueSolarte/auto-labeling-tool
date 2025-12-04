@@ -22,7 +22,7 @@ from utils.segmentation import _apply_postprocessing_overrides
 from utils.sampling_mask import uniform_mask_sampling as mask_sampling
 
 SAM2_DEFAULT_DIR = Path("/models/sam2")
-DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_l.yaml"
+DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_hiera_l.yaml"
 DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 
 
@@ -76,11 +76,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--async-loading",
         action="store_true",
+        default=True,
         help="Stream frames asynchronously while initializing the predictor.",
     )
     parser.add_argument(
         "--offload-video-to-cpu",
         action="store_true",
+        default=True,
         help="Keep frames on CPU in the inference state to save GPU memory.",
     )
     parser.add_argument(
