@@ -137,7 +137,7 @@ def get_initial_xy_points(image: np.ndarray) -> List[tuple[float, float]]:
     cv2.namedWindow(window)
     cv2.setMouseCallback(window, on_mouse)
     cv2.imshow(window, img_display)
-
+    print(f"[get_initial_xy_points] Waiting for user to select initial points...")
     while True:
         key = cv2.waitKey(20) & 0xFF
         if key in (13, 27, 32):  # ENTER, ESC, SPACE

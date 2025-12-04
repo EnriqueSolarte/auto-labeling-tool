@@ -26,7 +26,7 @@ def get_initial_xy_points(image):
     cv2.namedWindow(window_name)
     cv2.setMouseCallback(window_name, on_mouse)
     cv2.imshow(window_name, img_display)
-
+    print(f"[get_initial_xy_points] Waiting for user to select initial points...")
     while True:
         key = cv2.waitKey(20) & 0xFF
         if key in (13, 27, 32):  # ENTER, ESC, SPACE
