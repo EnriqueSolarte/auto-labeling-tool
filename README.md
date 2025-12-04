@@ -76,6 +76,50 @@ Key behavior:
     `/data/masks/rosbag2_2025_11_28-11_43_17/<timestamp>/rosbag2_2025_11_28-11_43_17_1764301397533622123.jpg`.
 - During execution, an OpenCV window shows an overlay of the current mask on the RGB frame; press `q` or `ESC` to stop early.
 
+## YOLO Training Dataset Creation (`create_training_dataset.py`)
+
+Once you have masks, you can build a YOLO-style training dataset with `create_training_dataset.py`. It pairs RGB images with binary masks, computes bounding boxes, and writes YOLO label files plus a `data.yaml`.
+
+Example:
+
+```bash
+cd /workspace
+python3 create_training_dataset.py \
+  --masks_dir /data/masks \
+  --images_dir /data/with_bed \
+  --output-root /data/training_data \
+  --val-ratio 0.2 \
+  --seed 42 \
+  --class-name bed
+```
+
+This creates a timestamped dataset directory such as `/data/training_data/20251204_072806` with:
+
+- `images/train` and `images/val` – symlinks to the RGB images for each split.
+- `labels/train` and `labels/val` – YOLO `.txt` label files with a single class and normalized bounding boxes derived from the masks.
+- `data.yaml` – minimal YOLO config with `train`, `val`, and class name entries.
+
+## Visualizing Training Samples (`visualize_training_dataset.py`)
+
+To quickly sanity-check the generated YOLO dataset, use `visualize_training_dataset.py` to overlay the bounding boxes on the RGB images.
+
+Example:
+
+```bash
+cd /workspace
+python3 visualize_training_dataset.py \
+  /data/training_data/20251204_072806 \
+  --split train \
+  --fraction 0.1
+```
+
+Behavior:
+
+- Reads images from `images/<split>` and labels from `labels/<split>` under the given dataset root.
+- Converts YOLO-normalized bounding boxes back to pixel coordinates and draws them as green rectangles.
+- Shows up to `fraction` of the images (e.g. `0.1` = 10% of the split), advancing on key press.
+- Press `q` or `ESC` to exit early.
+
 ## SAM 2 Video Propagation Demos
 
 To interactively propagate a SAM 2 mask across a directory of RGB frames, use the top-level propagation scripts.
