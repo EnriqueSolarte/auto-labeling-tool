@@ -8,8 +8,8 @@ from utils import get_segmentation, load_sam_model, overlay_mask
 from utils.sampling_mask import jitter_mask_sampling as mask_sampling
 
 SAM2_DEFAULT_DIR = Path("/models/sam2")
-DEFAULT_SAM2_CONFIG = "configs/sam2/sam2_hiera_l.yaml"
-DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2_hiera_large.pt"
+DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_hiera_l.yaml"
+DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 
 
 def get_initial_xy_points(image):
