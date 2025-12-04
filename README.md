@@ -48,6 +48,34 @@ Key options:
 - `--output-mask` – destination for the mask PNG (defaults to `<image-dir>/mask.png`).
 - `--output-overlay` – destination for the overlay image (defaults to `overlay_<image-name>`).
 
+## Batch Mask Creation (`create_masks.py`)
+
+To generate and persist masks for an entire image sequence, use the `create_masks.py` script. It wraps the propagation demos into a non-interactive batch tool that saves compressed, lossless masks to disk while still letting you visualize overlays.
+
+Example usage:
+
+```bash
+cd /workspace
+python3 create_masks.py \
+  /data/with_bed/rosbag2_2025_11_28-11_43_17 \
+  --method sam2_prop
+```
+
+Key behavior:
+
+- Input: a directory with an ordered list of RGB frames (e.g. rosbag extractions).
+- Methods:
+  - `sam2_prop` – standard SAM 2 video predictor.
+  - `sam2_prop_recur` – recursive variant that resamples prompts from the propagated mask.
+  - `sam2_lkt` – LK tracking + SAM 2 image predictor.
+- Output masks are written as maximally compressed PNGs to:
+  - `/data/masks/<sequence_dir.name>/<timestamp>/<original_frame_filename>`
+  - e.g. for input frame  
+    `/data/with_bed/rosbag2_2025_11_28-11_43_17/rosbag2_2025_11_28-11_43_17_1764301397533622123.jpg`  
+    the mask path becomes  
+    `/data/masks/rosbag2_2025_11_28-11_43_17/<timestamp>/rosbag2_2025_11_28-11_43_17_1764301397533622123.jpg`.
+- During execution, an OpenCV window shows an overlay of the current mask on the RGB frame; press `q` or `ESC` to stop early.
+
 ## SAM 2 Video Propagation Demos
 
 To interactively propagate a SAM 2 mask across a directory of RGB frames, use the top-level propagation scripts.

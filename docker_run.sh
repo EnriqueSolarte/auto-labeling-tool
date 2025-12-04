@@ -25,7 +25,7 @@ else
         --volume="/media/q200/kike/docker_ws/docker_utils/:/docker_utils" \
         --volume="/media/datasets/rosbags-bishop-hospital:/data" \
         --volume="/media/q200/models_weights:/models" \
-        --volume="/media/q200/kike/bishop-yolo-detection-ws/auto_labeling_ws_SAM2:/workspace" \
+        --volume="/${DIR}:/workspace" \
         -w /workspace \
         "${IMAGE}"
 fi
