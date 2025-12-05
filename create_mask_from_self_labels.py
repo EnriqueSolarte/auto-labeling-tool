@@ -6,6 +6,7 @@ import random
 import re
 from pathlib import Path
 from typing import List, Tuple
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -15,12 +16,41 @@ from utils.segmentation import (
     load_sam_model,
     overlay_mask,
 )
+from utils.sampling_mask import uniform_mask_sampling as mask_sampling
+from propagate_sam2 import (
+    list_frame_paths,
+    load_video_predictor,
+    read_frame,
+    tensor_mask_to_numpy,
+)
 
 SAM2_DEFAULT_DIR = Path("/models/sam2")
 DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_hiera_l.yaml"
 DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 
 BBox = Tuple[float, float, float, float]
+
+
+def _save_mask(mask: np.ndarray, out_path: Path) -> bool:
+    """
+    Save a binary mask image.
+
+    Returns:
+        True if an image file was written, False otherwise.
+    """
+    if mask is None:
+        return False
+    mask_arr = np.asarray(mask)
+    if mask_arr.size == 0 or not mask_arr.any():
+        return False
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    mask_u8 = (mask_arr.astype(np.uint8) * 255)
+    ok = cv2.imwrite(
+        str(out_path),
+        mask_u8,
+        [cv2.IMWRITE_PNG_COMPRESSION, 9],
+    )
+    return bool(ok)
 
 
 def aggregate_mask(masks: List[np.ndarray], bbox: BBox) -> np.ndarray:
@@ -55,6 +85,113 @@ def aggregate_mask(masks: List[np.ndarray], bbox: BBox) -> np.ndarray:
     mean_mask = np.zeros((height, width), dtype=bool)
     mean_mask[y0:y1, x0:x1] = roi_mean
     return mean_mask
+
+
+def _propagate_mask_from_image(
+    sequence_dir: Path,
+    annotation_image: Path,
+    initial_mask: np.ndarray,
+    device: str,
+    checkpoint: Path,
+) -> None:
+    """
+    Use the SAM2 video predictor to propagate `initial_mask` from `annotation_image`
+    across the full image sequence in `sequence_dir`, without manual prompts.
+    """
+    try:
+        frame_paths = list_frame_paths(sequence_dir)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[propagate_from_self_labels] Failed to list frames: {exc}")
+        return
+
+    try:
+        annotation_idx = next(
+            i for i, p in enumerate(frame_paths) if p.name == annotation_image.name
+        )
+    except StopIteration:
+        print(
+            f"[propagate_from_self_labels] Annotation image {annotation_image.name} "
+            f"not found in sequence {sequence_dir}"
+        )
+        return
+
+    out_root = Path("/data/masks")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = out_root / sequence_dir.name / timestamp
+
+    print(f"[propagate_from_self_labels] Sequence dir: {sequence_dir}")
+    print(f"[propagate_from_self_labels] Annotation frame index: {annotation_idx}")
+    print(f"[propagate_from_self_labels] Masks will be saved under: {out_dir}")
+
+    points = mask_sampling(initial_mask, num_samples=10)
+    if not points:
+        print("[propagate_from_self_labels] No points sampled from mask; aborting.")
+        return
+
+    predictor = load_video_predictor(
+        checkpoint=checkpoint,
+        model_config=str(DEFAULT_SAM2_CONFIG),
+        device=device,
+        vos_optimized=False,
+    )
+    inference_state = predictor.init_state(
+        video_path=str(sequence_dir),
+        offload_video_to_cpu=True,
+        offload_state_to_cpu=False,
+        async_loading_frames=True,
+    )
+
+    points_arr = np.asarray(points, dtype=np.float32)
+    labels = np.ones(points_arr.shape[0], dtype=np.int32)
+    object_id = 1
+
+    frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
+        inference_state=inference_state,
+        frame_idx=annotation_idx,
+        obj_id=object_id,
+        points=points_arr,
+        labels=labels,
+    )
+
+    if object_id in obj_ids:
+        pos = obj_ids.index(object_id)
+        mask_np = tensor_mask_to_numpy(masks[pos])
+        mask_path = out_dir / frame_paths[frame_idx].name
+        if _save_mask(mask_np, mask_path):
+            print(
+                f"[propagate_from_self_labels] Saved mask for frame {frame_idx}: "
+                f"{mask_path}"
+            )
+        else:
+            print(
+                f"[propagate_from_self_labels] Mask NOT SAVED for frame {frame_idx}: "
+                f"{mask_path}"
+            )
+
+    print("[propagate_from_self_labels] Starting propagation...")
+    for out_idx, obj_ids, mask_scores in predictor.propagate_in_video(
+        inference_state,
+        start_frame_idx=annotation_idx,
+        max_frame_num_to_track=None,
+    ):
+        if object_id not in obj_ids:
+            continue
+        pos = obj_ids.index(object_id)
+        mask_np = tensor_mask_to_numpy(mask_scores[pos])
+        mask_path = out_dir / frame_paths[out_idx].name
+        if _save_mask(mask_np, mask_path):
+            print(
+                f"[propagate_from_self_labels] Saved mask for frame {out_idx}: "
+                f"{mask_path}"
+            )
+        else:
+            print(
+                f"[propagate_from_self_labels] Mask NOT SAVED for frame {out_idx}: "
+                f"{mask_path}"
+            )
+
+    cv2.destroyAllWindows()
+    print("[propagate_from_self_labels] Finished.")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -229,6 +366,9 @@ def main() -> None:
         device=args.device,
     )
 
+    accepted_mask: np.ndarray | None = None
+    accepted_image: Path | None = None
+
     while True:
         bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
         image_path = _find_image_for_bbox(bbx_file, image_dir)
@@ -272,11 +412,23 @@ def main() -> None:
         key = cv2.waitKey(0) & 0xFF
         cv2.destroyAllWindows()
 
-        print(key)
-        if key in (ord("t"), ord("q")):
+        if key == ord("t"):
+            accepted_mask = mask
+            accepted_image = image_path
+            break
+        if key == ord("q"):
             break
         if key == 32:  # Spacebar
             continue
+
+    if accepted_mask is not None and accepted_image is not None:
+        _propagate_mask_from_image(
+            sequence_dir=image_dir,
+            annotation_image=accepted_image,
+            initial_mask=accepted_mask,
+            device=args.device,
+            checkpoint=args.checkpoint,
+        )
 
 
 if __name__ == "__main__":
