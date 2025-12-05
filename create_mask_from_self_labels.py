@@ -23,6 +23,14 @@ DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 BBox = Tuple[float, float, float, float]
 
 
+def aggregate_mask(masks: List[np.ndarray]) -> np.ndarray:
+    if not masks:
+        raise ValueError("masks must contain at least one mask.")
+    stacked = np.stack(masks, axis=0).astype(np.float32)
+    mean_mask = stacked.mean(axis=0)
+    return mean_mask >= 0.5
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -55,7 +63,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=10,
+        default=2,
         help="Number of random points to sample inside the selected bounding box.",
     )
     parser.add_argument(
@@ -63,6 +71,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional random seed for reproducibility.",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=100,
+        help="Number of times to run SAM for averaging masks.",
     )
     return parser.parse_args()
 
@@ -199,7 +213,6 @@ def main() -> None:
         device=args.device,
     )
 
-    # TODO: Fixed until line:212 . aggregate_mask compute the average mask
     list_masks = []
     for _ in range(args.iterations):
         mask, _ = get_segmentation(
@@ -209,9 +222,16 @@ def main() -> None:
             multimask_output=False,
         )
         list_masks.append(mask)
+        points = _sample_points_in_bbox(bbox, args.num_samples, rng)
     mask = aggregate_mask(list_masks)
-    
-    overlay = overlay_mask(image_path, mask)
+
+    overlay_rgb = overlay_mask(image_path, mask)
+    overlay = cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2BGR)
+
+    x_min, y_min, x_max, y_max = bbox
+    pt1 = (int(round(x_min)), int(round(y_min)))
+    pt2 = (int(round(x_max)), int(round(y_max)))
+    cv2.rectangle(overlay, pt1, pt2, (0, 0, 255), 2)
     for u, v in points:
         cv2.circle(
             overlay,
