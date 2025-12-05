@@ -78,11 +78,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Visualize YOLO training samples for a dataset created by create_training_dataset.py.\n"
-            "Example: visualize_training_dataset.py /data/training_data/20251204_072806 --split train"
+            "Example: visualize_training_dataset.py --dataset-root /data/training_data/20251204_072806 --split train"
         )
     )
     parser.add_argument(
-        "dataset_root",
+        "--dataset-root",
+        required=True,
         type=Path,
         help="Path to the dataset root (e.g. /data/training_data/20251204_072806).",
     )

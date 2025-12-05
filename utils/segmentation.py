@@ -16,10 +16,10 @@ from PIL import Image
 
 ImageSource = Union[str, Path, np.ndarray, Image.Image]
 Point = Union[Tuple[float, float], Tuple[int, int], np.ndarray]
+
 SAM2_DEFAULT_DIR = Path("/models/sam2")
-DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_tiny.pt"
-DEFAULT_SAM2_CONFIG_PATH = SAM2_DEFAULT_DIR / "sam2.1_hiera_t.yaml"
-DEFAULT_SAM2_CONFIG = "configs/sam2.1/sam2.1_hiera_t.yaml"
+DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_hiera_l.yaml"
+DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 
 
 def _ensure_sam2_predictor():
@@ -36,10 +36,8 @@ def _ensure_sam2_predictor():
 
 
 def _default_model_config() -> str:
-    """Prefer the on-disk config in /models/sam2 when available."""
-    if DEFAULT_SAM2_CONFIG_PATH.exists():
-        return str(DEFAULT_SAM2_CONFIG_PATH)
-    return DEFAULT_SAM2_CONFIG
+    """Return the default SAM 2 config path."""
+    return str(DEFAULT_SAM2_CONFIG)
 
 
 def _apply_postprocessing_overrides(cfg) -> None:
@@ -157,9 +155,9 @@ def load_sam_model(
 
     Args:
         checkpoint_path: Filesystem path to the SAM 2 .pt checkpoint.
-        model_config: Either a Hydra config name (e.g., "configs/sam2.1/sam2.1_hiera_t.yaml")
-            or an absolute path to a YAML config file. Defaults to the tiny SAM 2.1 config,
-            preferring `/models/sam2/sam2.1_hiera_t.yaml` when it exists.
+        model_config: Either a Hydra config name (e.g., "configs/sam2.1/sam2.1_hiera_l.yaml")
+            or an absolute path to a YAML config file. Defaults to the large SAM 2.1 config
+            under `/models/sam2/configs/sam2.1/sam2.1_hiera_l.yaml`.
         device: Optional torch device string (e.g., "cuda", "cuda:0", "cpu").
         **build_kwargs: Extra keyword arguments forwarded to sam2.build_sam.build_sam2.
     """

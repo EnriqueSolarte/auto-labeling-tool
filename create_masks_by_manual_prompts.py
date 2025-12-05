@@ -415,7 +415,8 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "sequence_dir",
+        "--sequence-dir",
+        required=True,
         type=Path,
         help="Directory containing an ordered list of RGB frames.",
     )
