@@ -23,12 +23,38 @@ DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 BBox = Tuple[float, float, float, float]
 
 
-def aggregate_mask(masks: List[np.ndarray]) -> np.ndarray:
+def aggregate_mask(masks: List[np.ndarray], bbox: BBox) -> np.ndarray:
     if not masks:
         raise ValueError("masks must contain at least one mask.")
-    stacked = np.stack(masks, axis=0).astype(np.float32)
-    mean_mask = stacked.mean(axis=0)
-    return mean_mask >= 0.5
+    height, width = masks[0].shape
+    x_min, y_min, x_max, y_max = bbox
+
+    x0 = max(0, int(np.floor(x_min)))
+    y0 = max(0, int(np.floor(y_min)))
+    x1 = min(width, int(np.ceil(x_max)))
+    y1 = min(height, int(np.ceil(y_max)))
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("Invalid bounding box for mask aggregation.")
+    # Build a stack restricted to the ROI for efficiency.
+    roi_stack = np.stack([m[y0:y1, x0:x1] for m in masks])  # (N, roi_h, roi_w)
+
+    # Compute per-mask ROI size (area) to use as weights.
+    areas = roi_stack.reshape(roi_stack.shape[0], -1).sum(axis=1).astype(np.float32)
+    total_area = float(areas.sum())
+
+    if total_area > 0.0:
+        weights = areas / total_area  # (N,)
+        weighted_roi = (roi_stack.astype(np.float32) * weights[:, None, None]).sum(
+            axis=0
+        )
+        roi_mean = weighted_roi > 0.5
+    else:
+        # Fallback to unweighted majority if all masks are empty.
+        roi_mean = roi_stack.mean(axis=0) > 0.5
+
+    mean_mask = np.zeros((height, width), dtype=bool)
+    mean_mask[y0:y1, x0:x1] = roi_mean
+    return mean_mask
 
 
 def _parse_args() -> argparse.Namespace:
@@ -40,13 +66,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--bbx-dir",
         type=Path,
-        required=True,
+        # required=True,
+        default='/data/self_labeling/with_bed/silver-sweep-21__2025.12.5/self_labels/rosbag2_2025_11_28-14_53_38',
         help="Directory containing bounding box files (one file per image).",
     )
     parser.add_argument(
         "--image-dir",
         type=Path,
-        required=True,
+        # required=True,
+        default='/data/with_bed/rosbag2_2025_11_28-14_53_38',
         help="Directory containing the corresponding RGB images.",
     )
     parser.add_argument(
@@ -194,55 +222,61 @@ def main() -> None:
     image_dir: Path = args.image_dir.expanduser().resolve()
 
     bbx_files = _list_bbx_files(bbx_dir)
-    bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
-    image_path = _find_image_for_bbox(bbx_file, image_dir)
-    image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-    if image is None:
-        raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
-    height, width = image.shape[:2]
-    bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
-
     rng = np.random.default_rng(args.seed)
-    points = _sample_points_in_bbox(bbox, args.num_samples, rng)
-    if not points:
-        raise RuntimeError("No points were sampled inside the bounding box.")
-
     predictor = load_sam_model(
         checkpoint_path=args.checkpoint,
         model_config=None,
         device=args.device,
     )
 
-    list_masks = []
-    for _ in range(args.iterations):
-        mask, _ = get_segmentation(
-            image=image_path,
-            keypoints_uv=points,
-            predictor=predictor,
-            multimask_output=False,
-        )
-        list_masks.append(mask)
-        points = _sample_points_in_bbox(bbox, args.num_samples, rng)
-    mask = aggregate_mask(list_masks)
+    while True:
+        bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
+        image_path = _find_image_for_bbox(bbx_file, image_dir)
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
+        height, width = image.shape[:2]
+        bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
 
-    overlay_rgb = overlay_mask(image_path, mask)
-    overlay = cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2BGR)
+        list_masks = []
+        for _ in range(args.iterations):
+            points = _sample_points_in_bbox(bbox, args.num_samples, rng)
+            if not points:
+                raise RuntimeError("No points were sampled inside the bounding box.")
 
-    x_min, y_min, x_max, y_max = bbox
-    pt1 = (int(round(x_min)), int(round(y_min)))
-    pt2 = (int(round(x_max)), int(round(y_max)))
-    cv2.rectangle(overlay, pt1, pt2, (0, 0, 255), 2)
-    for u, v in points:
-        cv2.circle(
-            overlay,
-            (int(round(u)), int(round(v))),
-            3,
-            (0, 255, 0),
-            -1,
-        )
-    cv2.imshow("SAM2 mask from self-label", overlay)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+            mask, _ = get_segmentation(
+                image=image_path,
+                keypoints_uv=points,
+                predictor=predictor,
+                multimask_output=False,
+            )
+            list_masks.append(mask)
+        mask = aggregate_mask(list_masks, bbox)
+
+        overlay_rgb = overlay_mask(image_path, mask)
+        overlay = cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2BGR)
+
+        x_min, y_min, x_max, y_max = bbox
+        pt1 = (int(round(x_min)), int(round(y_min)))
+        pt2 = (int(round(x_max)), int(round(y_max)))
+        cv2.rectangle(overlay, pt1, pt2, (0, 0, 255), 2)
+        for u, v in points:
+            cv2.circle(
+                overlay,
+                (int(round(u)), int(round(v))),
+                3,
+                (0, 255, 0),
+                -1,
+            )
+        cv2.imshow("SAM2 mask from self-label", overlay)
+        key = cv2.waitKey(0) & 0xFF
+        cv2.destroyAllWindows()
+
+        print(key)
+        if key in (ord("t"), ord("q")):
+            break
+        if key == 32:  # Spacebar
+            continue
 
 
 if __name__ == "__main__":
