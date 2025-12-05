@@ -110,7 +110,7 @@ def _coerce_image(image: ImageSource) -> np.ndarray:
     if isinstance(image, (str, Path)):
         image = Image.open(image).convert("RGB")
     if isinstance(image, Image.Image):
-        image = np.asarray(image)
+        image = np.array(image, copy=True)
     if not isinstance(image, np.ndarray):
         raise TypeError("image must be a numpy array, PIL image, or path-like object")
     if image.ndim != 3 or image.shape[2] not in (3, 4):
@@ -124,6 +124,8 @@ def _coerce_image(image: ImageSource) -> np.ndarray:
             image = np.clip(image * 255.0, 0, 255).astype(np.uint8)
         else:
             image = image.astype(np.uint8)
+    if not image.flags.writeable:
+        image = image.copy()
     return image
 
 
