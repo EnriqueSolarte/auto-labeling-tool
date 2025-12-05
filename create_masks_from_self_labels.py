@@ -11,6 +11,11 @@ from datetime import datetime
 import cv2
 import numpy as np
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover - optional dependency
+    tqdm = None
+
 from utils.segmentation import (
     get_segmentation,
     load_sam_model,
@@ -115,9 +120,8 @@ def _propagate_mask_from_image(
         )
         return
 
-    out_root = Path("/data/masks")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = out_root / sequence_dir.name / timestamp
+    out_dir = Path(f"/data/masks_{timestamp}")
 
     print(f"[propagate_from_self_labels] Sequence dir: {sequence_dir}")
     print(f"[propagate_from_self_labels] Annotation frame index: {annotation_idx}")
@@ -202,16 +206,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--bbx-dir",
         type=Path,
-        # required=True,
         default='/data/self_labeling/with_bed/silver-sweep-21__2025.12.5/self_labels/rosbag2_2025_11_28-14_53_38',
         help="Directory containing bounding box files (one file per image).",
     )
     parser.add_argument(
         "--image-dir",
         type=Path,
-        # required=True,
-        default='/data/with_bed/rosbag2_2025_11_28-14_53_38',
-        help="Directory containing the corresponding RGB images.",
+        default='/data/with_bed/',
+        help=(
+            "Root directory containing RGB image subdirectories; "
+            "the parent directory name of each bounding-box file is "
+            "used to select the corresponding image subdirectory."
+        ),
     )
     parser.add_argument(
         "--checkpoint",
@@ -241,6 +247,11 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=100,
         help="Number of times to run SAM for averaging masks.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Visualize the final mask and wait for 'q' before propagation.",
     )
     return parser.parse_args()
 
@@ -334,10 +345,14 @@ def _parse_bbox_file(path: Path, image_size: Tuple[int, int] | None = None) -> B
 def _find_image_for_bbox(bbx_file: Path, image_dir: Path) -> Path:
     stem = bbx_file.stem
     exts = (".jpg", ".jpeg", ".png", ".bmp")
+    parent_name = bbx_file.parent.name
+
+    _image_dir = image_dir / parent_name 
+    
     for ext in exts:
-        candidate = image_dir / f"{stem}{ext}"
+        candidate = _image_dir / f"{stem}{ext}"
         if candidate.exists():
-            return candidate
+            return candidate, _image_dir
     raise FileNotFoundError(
         f"No image found for bounding box file {bbx_file.name} in {image_dir}"
     )
@@ -366,7 +381,7 @@ def main() -> None:
     )
 
     bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
-    image_path = _find_image_for_bbox(bbx_file, image_dir)
+    image_path, image_dir = _find_image_for_bbox(bbx_file, image_dir)
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if image is None:
         raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
@@ -374,7 +389,10 @@ def main() -> None:
     bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
 
     list_masks: List[np.ndarray] = []
-    for _ in range(args.iterations):
+    loop = range(args.iterations)
+    if tqdm is not None:
+        loop = tqdm(loop, desc="Sampling masks", unit="iter")
+    for _ in loop:
         points = _sample_points_in_bbox(bbox, args.num_samples, rng)
         if not points:
             raise RuntimeError("No points were sampled inside the bounding box.")
@@ -388,6 +406,24 @@ def main() -> None:
         list_masks.append(mask)
 
     accepted_mask = aggregate_mask(list_masks, bbox)
+    if getattr(args, "debug", False):
+        overlay = overlay_mask(image, accepted_mask)
+        cv2.putText(
+            overlay,
+            "Mask debug - press 'q' to continue",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.imshow("Mask Debug", overlay)
+        while True:
+            key = cv2.waitKey(0) & 0xFF
+            if key == ord("q"):
+                break
+        cv2.destroyWindow("Mask Debug")
     _propagate_mask_from_image(
         sequence_dir=image_dir,
         annotation_image=image_path,

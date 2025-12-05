@@ -432,9 +432,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     sequence_dir: Path = args.sequence_dir.expanduser().resolve()
-    out_root = Path("/data/masks")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = out_root / sequence_dir.name / timestamp
+    out_dir = Path(f"/data/masks_{timestamp}")
 
     print(f"[main] Sequence dir: {sequence_dir}")
     print(f"[main] Method: {args.method}")
