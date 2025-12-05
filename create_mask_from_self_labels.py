@@ -190,7 +190,6 @@ def _propagate_mask_from_image(
                 f"{mask_path}"
             )
 
-    cv2.destroyAllWindows()
     print("[propagate_from_self_labels] Finished.")
 
 
@@ -366,69 +365,36 @@ def main() -> None:
         device=args.device,
     )
 
-    accepted_mask: np.ndarray | None = None
-    accepted_image: Path | None = None
+    bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
+    image_path = _find_image_for_bbox(bbx_file, image_dir)
+    image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+    if image is None:
+        raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
+    height, width = image.shape[:2]
+    bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
 
-    while True:
-        bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
-        image_path = _find_image_for_bbox(bbx_file, image_dir)
-        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-        if image is None:
-            raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
-        height, width = image.shape[:2]
-        bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
+    list_masks: List[np.ndarray] = []
+    for _ in range(args.iterations):
+        points = _sample_points_in_bbox(bbox, args.num_samples, rng)
+        if not points:
+            raise RuntimeError("No points were sampled inside the bounding box.")
 
-        list_masks = []
-        for _ in range(args.iterations):
-            points = _sample_points_in_bbox(bbox, args.num_samples, rng)
-            if not points:
-                raise RuntimeError("No points were sampled inside the bounding box.")
-
-            mask, _ = get_segmentation(
-                image=image_path,
-                keypoints_uv=points,
-                predictor=predictor,
-                multimask_output=False,
-            )
-            list_masks.append(mask)
-        mask = aggregate_mask(list_masks, bbox)
-
-        overlay_rgb = overlay_mask(image_path, mask)
-        overlay = cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2BGR)
-
-        x_min, y_min, x_max, y_max = bbox
-        pt1 = (int(round(x_min)), int(round(y_min)))
-        pt2 = (int(round(x_max)), int(round(y_max)))
-        cv2.rectangle(overlay, pt1, pt2, (0, 0, 255), 2)
-        for u, v in points:
-            cv2.circle(
-                overlay,
-                (int(round(u)), int(round(v))),
-                3,
-                (0, 255, 0),
-                -1,
-            )
-        cv2.imshow("SAM2 mask from self-label", overlay)
-        key = cv2.waitKey(0) & 0xFF
-        cv2.destroyAllWindows()
-
-        if key == ord("t"):
-            accepted_mask = mask
-            accepted_image = image_path
-            break
-        if key == ord("q"):
-            break
-        if key == 32:  # Spacebar
-            continue
-
-    if accepted_mask is not None and accepted_image is not None:
-        _propagate_mask_from_image(
-            sequence_dir=image_dir,
-            annotation_image=accepted_image,
-            initial_mask=accepted_mask,
-            device=args.device,
-            checkpoint=args.checkpoint,
+        mask, _ = get_segmentation(
+            image=image_path,
+            keypoints_uv=points,
+            predictor=predictor,
+            multimask_output=False,
         )
+        list_masks.append(mask)
+
+    accepted_mask = aggregate_mask(list_masks, bbox)
+    _propagate_mask_from_image(
+        sequence_dir=image_dir,
+        annotation_image=image_path,
+        initial_mask=accepted_mask,
+        device=args.device,
+        checkpoint=args.checkpoint,
+    )
 
 
 if __name__ == "__main__":
