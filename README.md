@@ -48,15 +48,15 @@ Key options:
 - `--output-mask` – destination for the mask PNG (defaults to `<image-dir>/mask.png`).
 - `--output-overlay` – destination for the overlay image (defaults to `overlay_<image-name>`).
 
-## Batch Mask Creation (`create_masks.py`)
+## Batch Mask Creation (`create_masks_by_manual_prompts.py`)
 
-To generate and persist masks for an entire image sequence, use the `create_masks.py` script. It wraps the propagation demos into a non-interactive batch tool that saves compressed, lossless masks to disk while still letting you visualize overlays.
+To generate and persist masks for an entire image sequence, use the `create_masks_by_manual_prompts.py` script. It wraps the propagation demos into a non-interactive batch tool that saves compressed, lossless masks to disk while still letting you visualize overlays.
 
 Example usage:
 
 ```bash
 cd /workspace
-python3 create_masks.py \
+python3 create_masks_by_manual_prompts.py \
   /data/with_bed/rosbag2_2025_11_28-11_43_17 \
   --method sam2_prop
 ```
@@ -76,15 +76,15 @@ Key behavior:
     `/data/masks/rosbag2_2025_11_28-11_43_17/<timestamp>/rosbag2_2025_11_28-11_43_17_1764301397533622123.jpg`.
 - During execution, an OpenCV window shows an overlay of the current mask on the RGB frame; press `q` or `ESC` to stop early.
 
-## YOLO Training Dataset Creation (`create_training_dataset.py`)
+## YOLO Training Dataset Creation (`create_training_dataset_from_masks.py`)
 
-Once you have masks, you can build a YOLO-style training dataset with `create_training_dataset.py`. It pairs RGB images with binary masks, computes bounding boxes, and writes YOLO label files plus a `data.yaml`.
+Once you have masks, you can build a YOLO-style training dataset with `create_training_dataset_from_masks.py`. It pairs RGB images with binary masks, computes bounding boxes, and writes YOLO label files plus a `data.yaml`.
 
 Example:
 
 ```bash
 cd /workspace
-python3 create_training_dataset.py \
+python3 create_training_dataset_from_masks.py \
   --masks_dir /data/masks \
   --images_dir /data/with_bed \
   --output-root /data/training_data \
