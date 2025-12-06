@@ -96,8 +96,10 @@ def _propagate_mask_from_image(
     sequence_dir: Path,
     annotation_image: Path,
     initial_mask: np.ndarray,
+    out_root: Path,
     device: str,
     checkpoint: Path,
+    debug: bool = False,
 ) -> None:
     """
     Use the SAM2 video predictor to propagate `initial_mask` from `annotation_image`
@@ -121,7 +123,7 @@ def _propagate_mask_from_image(
         return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = Path(f"/data/masks_{timestamp}")
+    out_dir = out_root / sequence_dir.name / timestamp
 
     print(f"[propagate_from_self_labels] Sequence dir: {sequence_dir}")
     print(f"[propagate_from_self_labels] Annotation frame index: {annotation_idx}")
@@ -149,6 +151,8 @@ def _propagate_mask_from_image(
     labels = np.ones(points_arr.shape[0], dtype=np.int32)
     object_id = 1
 
+    saved_indices: list[int] = []
+
     frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
         inference_state=inference_state,
         frame_idx=annotation_idx,
@@ -166,6 +170,7 @@ def _propagate_mask_from_image(
                 f"[propagate_from_self_labels] Saved mask for frame {frame_idx}: "
                 f"{mask_path}"
             )
+            saved_indices.append(frame_idx)
         else:
             print(
                 f"[propagate_from_self_labels] Mask NOT SAVED for frame {frame_idx}: "
@@ -188,6 +193,7 @@ def _propagate_mask_from_image(
                 f"[propagate_from_self_labels] Saved mask for frame {out_idx}: "
                 f"{mask_path}"
             )
+            saved_indices.append(out_idx)
         else:
             print(
                 f"[propagate_from_self_labels] Mask NOT SAVED for frame {out_idx}: "
@@ -196,27 +202,91 @@ def _propagate_mask_from_image(
 
     print("[propagate_from_self_labels] Finished.")
 
+    if debug and saved_indices:
+        window_name = "Propagated Masks Debug"
+        total = len(saved_indices)
+        print(
+            "[propagate_from_self_labels] Debug visualization: "
+            "showing propagated masks; press any key for next frame, q/ESC to quit."
+        )
+        for idx_pos, frame_idx in enumerate(sorted(set(saved_indices))):
+            frame = read_frame(frame_paths[frame_idx])
+            mask_path = out_dir / frame_paths[frame_idx].name
+            mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if mask_img is None:
+                continue
+            mask_bool = mask_img > 0
+            overlay = overlay_mask(frame, mask_bool)
+            label = f"Frame {frame_idx} ({idx_pos+1}/{total})"
+            cv2.putText(
+                overlay,
+                label,
+                (10, 24),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            info = "q/ESC: quit  any key: next"
+            cv2.putText(
+                overlay,
+                info,
+                (10, 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.imshow(window_name, overlay)
+            key = cv2.waitKey(0) & 0xFF
+            if key in (27, ord("q")):
+                break
+        cv2.destroyWindow(window_name)
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a SAM2 mask from a randomly selected self-label bounding box."
+            "Create a SAM2 mask from a randomly selected self-label bounding box.\n"
+            "Example:\n"
+            "  python create_masks_from_self_labels.py \\\n"
+            "      --bbx-dir /data/self_labeling/.../self_labels/rosbag2_2025_11_28-14_53_38 \\\n"
+            "      --image-dir /data/raw_data/with_bed \\\n"
+            "      --output-dir /data/masks"
         )
     )
     parser.add_argument(
         "--bbx-dir",
         type=Path,
-        default='/data/self_labeling/with_bed/silver-sweep-21__2025.12.5/self_labels/rosbag2_2025_11_28-14_53_38',
-        help="Directory containing bounding box files (one file per image).",
+        default=Path(
+            "/data/self_labeling/with_bed/"
+            "silver-sweep-21__2025.12.5/self_labels/"
+            "rosbag2_2025_11_28-14_53_38"
+        ),
+        help=(
+            "Directory containing bounding box files (one file per image), "
+            "or a .txt file listing multiple such directories (one per line)."
+        ),
     )
     parser.add_argument(
         "--image-dir",
         type=Path,
-        default='/data/with_bed/',
+        default=Path("/data/raw_data/with_bed"),
         help=(
             "Root directory containing RGB image subdirectories; "
             "the parent directory name of each bounding-box file is "
             "used to select the corresponding image subdirectory."
+        ),
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("/data/masks"),
+        help=(
+            "Root directory where masks will be stored; "
+            "masks go to <output-dir>/{sequence_dir.name}/{timestamp}."
         ),
     )
     parser.add_argument(
@@ -251,18 +321,68 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Visualize the final mask and wait for 'q' before propagation.",
+        help=(
+            "Debug mode: visualize the aggregated mask; in the window, "
+            "press 'o' to accept and propagate, SPACE to pick a new bounding "
+            "box, or 'q' to quit without propagating."
+        ),
     )
     return parser.parse_args()
 
 
-def _list_bbx_files(bbx_dir: Path) -> List[Path]:
+def _list_bbx_files_in_dir(bbx_dir: Path) -> List[Path]:
     if not bbx_dir.is_dir():
         raise FileNotFoundError(f"Bounding box directory not found: {bbx_dir}")
     files = [p for p in bbx_dir.iterdir() if p.is_file()]
     if not files:
         raise ValueError(f"No bounding box files found in {bbx_dir}")
     return files
+
+
+def _list_bbx_files(bbx_source: Path) -> List[Path]:
+    """
+    Resolve bounding-box files from either:
+
+    - a single directory containing bbox files, or
+    - a .txt file where each non-empty line is a bbox directory.
+    """
+    bbx_source = bbx_source.expanduser().resolve()
+
+    if bbx_source.is_file() and bbx_source.suffix.lower() == ".txt":
+        dirs: List[Path] = []
+        with bbx_source.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                path = Path(line).expanduser()
+                if not path.is_absolute():
+                    path = (bbx_source.parent / path).resolve()
+                else:
+                    path = path.resolve()
+                if path.is_dir():
+                    dirs.append(path)
+                else:
+                    print(
+                        f"[create_masks_from_self_labels] Skipping non-directory "
+                        f"entry from {bbx_source}: {path}"
+                    )
+        if not dirs:
+            raise ValueError(
+                f"No valid bounding box directories listed in {bbx_source}"
+            )
+
+        files: List[Path] = []
+        for d in dirs:
+            files.extend(_list_bbx_files_in_dir(d))
+        if not files:
+            raise ValueError(
+                f"No bounding box files found in any directory listed in {bbx_source}"
+            )
+        return files
+
+    # Fallback: treat as a single directory.
+    return _list_bbx_files_in_dir(bbx_source)
 
 
 def _pick_random_bbx_file(files: List[Path], seed: int | None = None) -> Path:
@@ -371,8 +491,11 @@ def main() -> None:
     args = _parse_args()
     bbx_dir: Path = args.bbx_dir.expanduser().resolve()
     image_dir: Path = args.image_dir.expanduser().resolve()
+    out_root: Path = args.output_dir.expanduser().resolve()
 
     bbx_files = _list_bbx_files(bbx_dir)
+    if args.seed is not None:
+        random.seed(args.seed)
     rng = np.random.default_rng(args.seed)
     predictor = load_sam_model(
         checkpoint_path=args.checkpoint,
@@ -380,57 +503,98 @@ def main() -> None:
         device=args.device,
     )
 
-    bbx_file = _pick_random_bbx_file(bbx_files, seed=args.seed)
-    image_path, image_dir = _find_image_for_bbox(bbx_file, image_dir)
-    image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-    if image is None:
-        raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
-    height, width = image.shape[:2]
-    bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
+    while True:
+        bbx_file = _pick_random_bbx_file(bbx_files)
+        print(f"Selected bounding box file: {bbx_file}")
+        image_path, sequence_dir = _find_image_for_bbox(bbx_file, image_dir)
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise RuntimeError(f"Failed to read image for bounding box: {image_path}")
+        height, width = image.shape[:2]
+        bbox = _parse_bbox_file(bbx_file, image_size=(width, height))
 
-    list_masks: List[np.ndarray] = []
-    loop = range(args.iterations)
-    if tqdm is not None:
-        loop = tqdm(loop, desc="Sampling masks", unit="iter")
-    for _ in loop:
-        points = _sample_points_in_bbox(bbox, args.num_samples, rng)
-        if not points:
-            raise RuntimeError("No points were sampled inside the bounding box.")
+        frame_idx = None
+        try:
+            frame_paths = list_frame_paths(sequence_dir)
+            frame_idx = next(
+                i for i, p in enumerate(frame_paths) if p.name == image_path.name
+            )
+        except Exception:  # noqa: BLE001
+            frame_idx = None
 
-        mask, _ = get_segmentation(
-            image=image_path,
-            keypoints_uv=points,
-            predictor=predictor,
-            multimask_output=False,
-        )
-        list_masks.append(mask)
+        list_masks: List[np.ndarray] = []
+        loop = range(args.iterations)
+        if tqdm is not None:
+            loop = tqdm(loop, desc="Sampling masks", unit="iter")
+        for _ in loop:
+            points = _sample_points_in_bbox(bbox, args.num_samples, rng)
+            if not points:
+                raise RuntimeError("No points were sampled inside the bounding box.")
 
-    accepted_mask = aggregate_mask(list_masks, bbox)
-    if getattr(args, "debug", False):
-        overlay = overlay_mask(image, accepted_mask)
-        cv2.putText(
-            overlay,
-            "Mask debug - press 'q' to continue",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
-        cv2.imshow("Mask Debug", overlay)
-        while True:
-            key = cv2.waitKey(0) & 0xFF
-            if key == ord("q"):
-                break
-        cv2.destroyWindow("Mask Debug")
-    _propagate_mask_from_image(
-        sequence_dir=image_dir,
-        annotation_image=image_path,
-        initial_mask=accepted_mask,
-        device=args.device,
-        checkpoint=args.checkpoint,
-    )
+            mask, _ = get_segmentation(
+                image=image_path,
+                keypoints_uv=points,
+                predictor=predictor,
+                multimask_output=False,
+            )
+            list_masks.append(mask)
+
+        accepted_mask = aggregate_mask(list_masks, bbox)
+        if getattr(args, "debug", False):
+            overlay = overlay_mask(image, accepted_mask)
+            cv2.putText(
+                overlay,
+                "Mask debug - q: quit, o: accept, SPACE: new bbox",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
+            if frame_idx is not None:
+                cv2.putText(
+                    overlay,
+                    f"Frame idx: {frame_idx}",
+                    (10, height - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+            cv2.imshow("Mask Debug", overlay)
+            while True:
+                key = cv2.waitKey(0) & 0xFF
+                if key in (27, ord("q")):
+                    cv2.destroyWindow("Mask Debug")
+                    return
+                if key in (ord("o"), ord("O")):
+                    cv2.destroyWindow("Mask Debug")
+                    _propagate_mask_from_image(
+                        sequence_dir=sequence_dir,
+                        annotation_image=image_path,
+                        initial_mask=accepted_mask,
+                        out_root=out_root,
+                        device=args.device,
+                        checkpoint=args.checkpoint,
+                        debug=True,
+                    )
+                    return
+                if key == 32:  # space
+                    cv2.destroyWindow("Mask Debug")
+                    break
+        else:
+            _propagate_mask_from_image(
+                sequence_dir=sequence_dir,
+                annotation_image=image_path,
+                initial_mask=accepted_mask,
+                out_root=out_root,
+                device=args.device,
+                checkpoint=args.checkpoint,
+                debug=False,
+            )
+            return
 
 
 if __name__ == "__main__":

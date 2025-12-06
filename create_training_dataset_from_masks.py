@@ -145,9 +145,12 @@ def _link_images(samples: Sequence[Sample], images_dir: Path) -> None:
 
 
 def _write_data_yaml(root: Path, class_name: str, nc: int = 1) -> None:
+    # Use an absolute path so YOLO configs are location-independent of the
+    # current working directory from which this script is invoked.
+    root = root.expanduser().resolve()
     yaml_path = root / "data.yaml"
     content = [
-        "path: .",
+        f"path: {root}",
         "train: images/train",
         "val: images/val",
         f"nc: {nc}",
@@ -161,7 +164,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Create a YOLO training dataset from mask annotations and RGB images.\n"
-            "Masks may reside under a root like /data/masks or any nested subdirectory."
+            "Masks may reside under a root like /data/masks or any nested subdirectory.\n"
+            "Example:\n"
+            "  python create_training_dataset_from_masks.py \\\n"
+            "      --masks_dir /data/masks \\\n"
+            "      --images_dir /data/with_bed \\\n"
+            "      --output-root /data/training_data"
         )
     )
     parser.add_argument(

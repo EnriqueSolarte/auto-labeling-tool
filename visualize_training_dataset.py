@@ -78,7 +78,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Visualize YOLO training samples for a dataset created by create_training_dataset.py.\n"
-            "Example: visualize_training_dataset.py --dataset-root /data/training_data/20251204_072806 --split train"
+            "Example:\n"
+            "  python visualize_training_dataset.py \\\n"
+            "      --dataset-root /data/training_data/20251204_072806 \\\n"
+            "      --split train"
         )
     )
     parser.add_argument(

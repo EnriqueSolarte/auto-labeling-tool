@@ -53,7 +53,11 @@ def _save_mask(mask: np.ndarray, out_path: Path) -> bool:
     return bool(ok)
 
 
-def _select_annotation_frame(frame_paths: list[Path], window: str = "Select frame") -> int | None:
+def _select_annotation_frame(
+    frame_paths: list[Path],
+    window: str = "Select frame",
+    init_idx: int = 0,
+) -> int | None:
     """
     Let the user choose the initial frame.
 
@@ -64,7 +68,8 @@ def _select_annotation_frame(frame_paths: list[Path], window: str = "Select fram
     if not frame_paths:
         return None
 
-    idx = 0
+    init_idx = max(0, min(int(init_idx), len(frame_paths) - 1))
+    idx = init_idx
     total = len(frame_paths)
     while True:
         frame = read_frame(frame_paths[idx])
@@ -145,7 +150,7 @@ def _show_overlay(
     return key in (27, ord("q"))
 
 
-def run_sam2_prop(sequence_dir: Path, out_dir: Path) -> None:
+def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     frame_paths = list_frame_paths(sequence_dir)
     if not frame_paths:
         print(f"[sam2_prop] No frames found in {sequence_dir}")
@@ -154,7 +159,11 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path) -> None:
     print(f"[sam2_prop] Found {len(frame_paths)} frames in {sequence_dir}")
     print(f"[sam2_prop] Output directory: {out_dir}")
 
-    annotation_idx_opt = _select_annotation_frame(frame_paths, "Select initial frame (sam2_prop)")
+    annotation_idx_opt = _select_annotation_frame(
+        frame_paths,
+        "Select initial frame (sam2_prop)",
+        init_idx=init_idx,
+    )
     if annotation_idx_opt is None:
         print("[sam2_prop] No frame selected; aborting.")
         return
@@ -232,7 +241,7 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path) -> None:
     print("[sam2_prop] Finished.")
 
 
-def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path) -> None:
+def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     frame_paths = list_frame_paths(sequence_dir)
     if not frame_paths:
         print(f"[sam2_prop_recur] No frames found in {sequence_dir}")
@@ -241,7 +250,11 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path) -> None:
     print(f"[sam2_prop_recur] Found {len(frame_paths)} frames in {sequence_dir}")
     print(f"[sam2_prop_recur] Output directory: {out_dir}")
 
-    annotation_idx_opt = _select_annotation_frame(frame_paths, "Select initial frame (sam2_prop_recur)")
+    annotation_idx_opt = _select_annotation_frame(
+        frame_paths,
+        "Select initial frame (sam2_prop_recur)",
+        init_idx=init_idx,
+    )
     if annotation_idx_opt is None:
         print("[sam2_prop_recur] No frame selected; aborting.")
         return
@@ -341,13 +354,17 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path) -> None:
     print("[sam2_prop_recur] Finished.")
 
 
-def run_sam2_lkt(sequence_dir: Path, out_dir: Path) -> None:
+def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     frame_paths = list_frame_paths(sequence_dir)
     if not frame_paths:
         print(f"[sam2_lkt] No frames found in {sequence_dir}")
         return
 
-    annotation_idx_opt = _select_annotation_frame(frame_paths, "Select initial frame (sam2_lkt)")
+    annotation_idx_opt = _select_annotation_frame(
+        frame_paths,
+        "Select initial frame (sam2_lkt)",
+        init_idx=init_idx,
+    )
     if annotation_idx_opt is None:
         print("[sam2_lkt] No frame selected; aborting.")
         return
@@ -411,7 +428,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run SAM2 over an image sequence and save binary masks to "
-            "/data/masks/{sequence_dir.name}/{timestamp}."
+            "<output-dir>/{sequence_dir.name}/{timestamp}.\n"
+            "Example:\n"
+            "  python create_masks_by_manual_prompts.py \\\n"
+            "      --sequence-dir /workspace/assets/seq_images \\\n"
+            "      --method sam2_prop \\\n"
+            "      --output-dir /data/masks"
         )
     )
     parser.add_argument(
@@ -426,25 +448,43 @@ def parse_args() -> argparse.Namespace:
         default="sam2_prop",
         help="Backend to use: plain SAM2 video, recursive SAM2, or LK+SAM2.",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("/data/masks"),
+        help=(
+            "Root directory where masks will be stored; "
+            "masks go to <output-dir>/{sequence_dir.name}/{timestamp}."
+        ),
+    )
+    parser.add_argument(
+        "--init-idx",
+        type=int,
+        default=0,
+        help=(
+            "Initial frame index to start the frame selection UI from "
+            "when choosing the first annotated frame."
+        ),
+    )
     return parser.parse_args()
-
 
 def main() -> None:
     args = parse_args()
     sequence_dir: Path = args.sequence_dir.expanduser().resolve()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = Path(f"/data/masks_{timestamp}")
+    out_root = args.output_dir.expanduser().resolve()
+    out_dir = out_root / sequence_dir.name / timestamp
 
     print(f"[main] Sequence dir: {sequence_dir}")
     print(f"[main] Method: {args.method}")
     print(f"[main] Masks will be saved under: {out_dir}")
 
     if args.method == "sam2_prop":
-        run_sam2_prop(sequence_dir, out_dir)
+        run_sam2_prop(sequence_dir, out_dir, init_idx=args.init_idx)
     elif args.method == "sam2_prop_recur":
-        run_sam2_prop_recursive(sequence_dir, out_dir)
+        run_sam2_prop_recursive(sequence_dir, out_dir, init_idx=args.init_idx)
     else:
-        run_sam2_lkt(sequence_dir, out_dir)
+        run_sam2_lkt(sequence_dir, out_dir, init_idx=args.init_idx)
 
 
 if __name__ == "__main__":

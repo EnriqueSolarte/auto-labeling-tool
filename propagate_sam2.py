@@ -27,7 +27,15 @@ DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Track a SAM 2 mask across frames")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Track a SAM 2 mask across frames.\n"
+            "Example:\n"
+            "  python propagate_sam2.py \\\n"
+            "      --sequence-dir /workspace/assets/seq_images \\\n"
+            "      --checkpoint /models/sam2/sam2.1_hiera_large.pt"
+        )
+    )
     parser.add_argument(
         "--sequence-dir",
         type=Path,
