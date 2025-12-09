@@ -26,31 +26,33 @@ from propagate_sam2_lkt import (
     get_sam_model,
     track_xy,
 )
-from utils import overlay_mask
 from utils.lk_tracker import load_image_sequence
 
 
 def _save_mask(mask: np.ndarray, out_path: Path) -> bool:
     """
-    Save a binary mask image.
+    Save a binary mask stack as .npy with shape [n, H, W].
 
     Returns:
-        True if an image file was written, False otherwise.
+        True if a file was written, False otherwise.
     """
     if mask is None:
         return False
-    mask_arr = np.asarray(mask)
-    if mask_arr.size == 0 or not mask_arr.any():
-        # Skip saving empty masks
+    mask_arr = np.asarray(mask, dtype=bool)
+    if mask_arr.ndim == 2:
+        mask_arr = mask_arr[None, ...]
+    if mask_arr.ndim != 3 or mask_arr.size == 0:
         return False
+
+    # Remove empty slices to avoid writing placeholder objects.
+    keep = mask_arr.reshape(mask_arr.shape[0], -1).any(axis=1)
+    mask_arr = mask_arr[keep]
+    if mask_arr.size == 0:
+        return False
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    mask_u8 = (mask_arr.astype(np.uint8) * 255)
-    ok = cv2.imwrite(
-        str(out_path),
-        mask_u8,
-        [cv2.IMWRITE_PNG_COMPRESSION, 9],
-    )
-    return bool(ok)
+    np.save(str(out_path), mask_arr)
+    return True
 
 
 def _select_annotation_frame(
@@ -120,8 +122,35 @@ def _show_overlay(
 
     Returns True if the user requested to quit (q/ESC), False otherwise.
     """
-    overlay = overlay_mask(frame, mask)
-    disp = overlay.copy()
+    frame_rgb = frame.copy()
+    palette = np.array(
+        [
+            [0, 255, 0],
+            [255, 0, 0],
+            [0, 200, 255],
+            [255, 165, 0],
+            [255, 0, 255],
+            [0, 255, 255],
+        ],
+        dtype=np.float32,
+    )
+
+    if mask.ndim == 3:
+        color_mask = np.zeros((*mask.shape[1:], 3), dtype=np.float32)
+        for i, obj_mask in enumerate(mask):
+            if obj_mask.any():
+                color_mask[obj_mask] = palette[i % len(palette)]
+        mask_union = mask.any(axis=0)
+    else:
+        mask_union = mask.astype(bool)
+        color_mask = np.zeros((*mask_union.shape, 3), dtype=np.float32)
+        color_mask[mask_union] = palette[0]
+
+    disp = frame_rgb.astype(np.float32)
+    disp[mask_union] = (
+        0.6 * color_mask[mask_union] + 0.4 * disp[mask_union]
+    )
+    disp = disp.astype(np.uint8)
     if idx is not None:
         label = f"Frame {idx}" if total is None else f"Frame {idx} / {total-1}"
         cv2.putText(
@@ -150,6 +179,47 @@ def _show_overlay(
     return key in (27, ord("q"))
 
 
+def _collect_multi_object_points(
+    anno_frame: np.ndarray,
+) -> list[list[tuple[float, float]]]:
+    """
+    Let the user select click prompts for one or more objects on the same frame.
+
+    Each round opens the usual point-selection UI; when finished with an object,
+    the user presses ENTER/ESC/SPACE. After that, the user is asked in the
+    terminal whether to add another object.
+    """
+    all_points: list[list[tuple[float, float]]] = []
+    obj_idx = 1
+    while True:
+        print(f"[sam2_prop] Selecting points for object {obj_idx}.")
+        points = get_points_video(anno_frame)
+        if not points:
+            if not all_points:
+                print("[sam2_prop] No points selected; aborting.")
+            else:
+                print(
+                    "[sam2_prop] No points for this object; "
+                    "finishing object selection."
+                )
+            break
+        all_points.append(points)
+        print(
+            f"[sam2_prop] Collected {len(points)} points for object {obj_idx} "
+            f"on annotation frame."
+        )
+        try:
+            rsp = input(
+                "[sam2_prop] Add another object? [y/N]: "
+            ).strip().lower()
+        except EOFError:
+            rsp = "n"
+        if rsp not in ("y", "yes"):
+            break
+        obj_idx += 1
+    return all_points
+
+
 def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     frame_paths = list_frame_paths(sequence_dir)
     if not frame_paths:
@@ -171,12 +241,16 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     print(f"[sam2_prop] Selected frame index: {annotation_idx}")
 
     anno_frame = read_frame(frame_paths[annotation_idx])
-    points = get_points_video(anno_frame)
-    if not points:
-        print("[sam2_prop] No points selected; aborting.")
+    all_points = _collect_multi_object_points(anno_frame)
+    if not all_points:
+        print("[sam2_prop] No objects were defined; aborting.")
         return
 
-    print(f"[sam2_prop] Collected {len(points)} initial points on frame {annotation_idx}")
+    num_objects = len(all_points)
+    print(
+        f"[sam2_prop] Collected prompts for {num_objects} "
+        f"object(s) on frame {annotation_idx}"
+    )
 
     predictor = load_video_predictor(
         checkpoint=VID_DEFAULT_CKPT,
@@ -191,27 +265,64 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         async_loading_frames=True,
     )
 
-    points_arr = np.asarray(points, dtype=np.float32)
-    labels = np.ones(points_arr.shape[0], dtype=np.int32)
-    object_id = 1
+    tracked_object_ids: list[int] = []
+    initial_masks: dict[int, np.ndarray] = {}
 
-    frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
-        inference_state=inference_state,
-        frame_idx=annotation_idx,
-        obj_id=object_id,
-        points=points_arr,
-        labels=labels,
+    for idx, points in enumerate(all_points, start=1):
+        obj_id = idx
+        points_arr = np.asarray(points, dtype=np.float32)
+        labels = np.ones(points_arr.shape[0], dtype=np.int32)
+
+        frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=annotation_idx,
+            obj_id=obj_id,
+            points=points_arr,
+            labels=labels,
+        )
+
+        if obj_id not in obj_ids:
+            continue
+
+        tracked_object_ids.append(obj_id)
+        pos = obj_ids.index(obj_id)
+        mask_np = tensor_mask_to_numpy(masks[pos])
+        initial_masks[obj_id] = mask_np
+
+    if not tracked_object_ids:
+        print("[sam2_prop] No valid objects were initialized; aborting.")
+        cv2.destroyAllWindows()
+        return
+
+    # Determine the common mask shape and build stacked masks [n, H, W]
+    first_mask = next(iter(initial_masks.values()))
+    mask_shape = first_mask.shape
+    initial_stack: list[np.ndarray] = []
+    combined_initial_mask = np.zeros(mask_shape, dtype=bool)
+    for obj_id in tracked_object_ids:
+        mask_np = initial_masks.get(obj_id)
+        if mask_np is None:
+            mask_np = np.zeros(mask_shape, dtype=bool)
+        combined_initial_mask |= mask_np
+        initial_stack.append(mask_np.astype(bool))
+
+    stacked_initial = np.stack(initial_stack, axis=0)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    init_out_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
+    np.save(str(init_out_path), stacked_initial)
+    print(
+        f"[sam2_prop] Saved stacked mask for frame {annotation_idx} "
+        f"with shape {stacked_initial.shape} to {init_out_path}"
     )
 
-    if object_id in obj_ids:
-        pos = obj_ids.index(object_id)
-        mask_np = tensor_mask_to_numpy(masks[pos])
-        mask_path = out_dir / frame_paths[frame_idx].name
-        if _save_mask(mask_np, mask_path):
-            print(f"[sam2_prop] Image saved for frame {frame_idx}: {mask_path}")
-        else:
-            print(f"[sam2_prop] Image NOT SAVED for frame {frame_idx}: {mask_path}")
-        if _show_overlay(anno_frame, mask_np, "SAM2 Masks", frame_idx, len(frame_paths)):
+    if combined_initial_mask is not None:
+        if _show_overlay(
+            anno_frame,
+            stacked_initial,
+            "SAM2 Masks",
+            annotation_idx,
+            len(frame_paths),
+        ):
             print("[sam2_prop] User requested exit during initial overlay.")
             cv2.destroyAllWindows()
             return
@@ -222,18 +333,35 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         start_frame_idx=annotation_idx,
         max_frame_num_to_track=None,
     ):
-        if object_id not in obj_ids:
-            continue
-        pos = obj_ids.index(object_id)
-        mask_np = tensor_mask_to_numpy(mask_scores[pos])
-        mask_path = out_dir / frame_paths[out_idx].name
-        if _save_mask(mask_np, mask_path):
-            print(f"[sam2_prop] Image saved for frame {out_idx}: {mask_path}")
-        else:
-            print(f"[sam2_prop] Image NOT SAVED for frame {out_idx}: {mask_path}")
+        combined_mask = np.zeros(mask_shape, dtype=bool)
+        frame_masks: list[np.ndarray] = []
+        for obj_id in tracked_object_ids:
+            if obj_id in obj_ids:
+                pos = obj_ids.index(obj_id)
+                mask_np = tensor_mask_to_numpy(mask_scores[pos])
+            else:
+                mask_np = np.zeros(mask_shape, dtype=bool)
+
+            frame_masks.append(mask_np.astype(bool))
+            combined_mask |= mask_np
+
+        if frame_masks:
+            stacked = np.stack(frame_masks, axis=0)
+            out_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
+            np.save(str(out_path), stacked)
+            print(
+                f"[sam2_prop] Saved stacked mask for frame {out_idx} "
+                f"with shape {stacked.shape} to {out_path}"
+            )
 
         frame = read_frame(frame_paths[out_idx])
-        if _show_overlay(frame, mask_np, "SAM2 Masks", out_idx, len(frame_paths)):
+        if _show_overlay(
+            frame,
+            stacked if frame_masks else combined_mask,
+            "SAM2 Masks",
+            out_idx,
+            len(frame_paths),
+        ):
             print(f"[sam2_prop] User requested exit at frame {out_idx}.")
             break
 
@@ -299,11 +427,11 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
     if object_id in obj_ids:
         pos = obj_ids.index(object_id)
         mask_np = tensor_mask_to_numpy(masks[pos])
-        mask_path = out_dir / frame_paths[annotation_idx].name
+        mask_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
         if _save_mask(mask_np, mask_path):
-            print(f"[sam2_prop_recur] Image saved for frame {annotation_idx}: {mask_path}")
+            print(f"[sam2_prop_recur] Mask stack saved for frame {annotation_idx}: {mask_path}")
         else:
-            print(f"[sam2_prop_recur] Image NOT SAVED for frame {annotation_idx}: {mask_path}")
+            print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
         if _show_overlay(anno_frame, mask_np, "SAM2 Recursive Masks", annotation_idx, len(frame_paths)):
             print("[sam2_prop_recur] User requested exit during initial overlay.")
             cv2.destroyAllWindows()
@@ -319,11 +447,11 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
             continue
         pos = obj_ids.index(object_id)
         mask_np = tensor_mask_to_numpy(mask_scores[pos])
-        mask_path = out_dir / frame_paths[out_idx].name
+        mask_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
         if _save_mask(mask_np, mask_path):
-            print(f"[sam2_prop_recur] Image saved for frame {out_idx}: {mask_path}")
+            print(f"[sam2_prop_recur] Mask stack saved for frame {out_idx}: {mask_path}")
         else:
-            print(f"[sam2_prop_recur] Image NOT SAVED for frame {out_idx}: {mask_path}")
+            print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {out_idx}: {mask_path}")
 
         frame = read_frame(frame_paths[out_idx])
         if _show_overlay(frame, mask_np, "SAM2 Recursive Masks", out_idx, len(frame_paths)):
@@ -386,11 +514,11 @@ def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         return
 
     mask, _ = compute_seg_mask(points, frames[annotation_idx], sam_model)
-    mask_path = out_dir / frame_paths[annotation_idx].name
+    mask_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
     if _save_mask(mask, mask_path):
-        print(f"[sam2_lkt] Image saved for frame {annotation_idx}: {mask_path}")
+        print(f"[sam2_lkt] Mask stack saved for frame {annotation_idx}: {mask_path}")
     else:
-        print(f"[sam2_lkt] Image NOT SAVED for frame {annotation_idx}: {mask_path}")
+        print(f"[sam2_lkt] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
     if _show_overlay(frames[annotation_idx], mask, "SAM2 LKT Masks", annotation_idx, len(frames)):
         print("[sam2_lkt] User requested exit during initial overlay.")
         cv2.destroyAllWindows()
@@ -410,11 +538,11 @@ def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         prev_frame = frame
 
         mask, _ = compute_seg_mask(points, frame, sam_model)
-        mask_path = out_dir / frame_paths[idx].name
+        mask_path = out_dir / f"{frame_paths[idx].stem}.npy"
         if _save_mask(mask, mask_path):
-            print(f"[sam2_lkt] Image saved for frame {idx}: {mask_path}")
+            print(f"[sam2_lkt] Mask stack saved for frame {idx}: {mask_path}")
         else:
-            print(f"[sam2_lkt] Image NOT SAVED for frame {idx}: {mask_path}")
+            print(f"[sam2_lkt] Mask stack NOT SAVED for frame {idx}: {mask_path}")
         if _show_overlay(frame, mask, "SAM2 LKT Masks", idx, len(frames)):
             print(f"[sam2_lkt] User requested exit at frame {idx}.")
             break
@@ -427,7 +555,7 @@ def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run SAM2 over an image sequence and save binary masks to "
+            "Run SAM2 over an image sequence and save binary mask stacks (.npy, shape [n, H, W]) to "
             "<output-dir>/{sequence_dir.name}/{timestamp}.\n"
             "Example:\n"
             "  python create_masks_by_manual_prompts.py \\\n"

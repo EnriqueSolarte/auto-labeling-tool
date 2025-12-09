@@ -66,63 +66,120 @@ def _aggregate_masks_for_episode(
     filename_index = _build_filename_index(version_dirs)
 
     for filename, paths in filename_index.items():
-        images: List[np.ndarray] = []
-        for path in paths:
-            img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                continue
-            images.append(img)
+        # Each mask file may be:
+        #   - a stacked array [n, H, W] stored as .npy, or
+        #   - a single 2D mask [H, W] image, which we treat as [1, H, W].
+        mask_arrays: List[np.ndarray] = []
+        base_shape: Optional[tuple[int, int, int]] = None
 
-        if not images:
+        for path in paths:
+            if path.suffix.lower() == ".npy":
+                try:
+                    arr = np.load(str(path))
+                except Exception:
+                    continue
+                if arr.ndim == 2:
+                    arr = arr[None, ...]  # [1, H, W]
+                elif arr.ndim != 3:
+                    # Unsupported shape; skip this file.
+                    continue
+                masks = arr > 0
+            else:
+                img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    continue
+                masks = (img > 0)[None, ...]  # [1, H, W]
+
+            if base_shape is None:
+                base_shape = masks.shape  # (n, H, W)
+            else:
+                if masks.shape != base_shape:
+                    # Mismatched shapes across versions; skip this file.
+                    continue
+            mask_arrays.append(masks.astype(np.float32))
+
+        if not mask_arrays or base_shape is None:
             continue
 
-        stack = np.stack(images, axis=0).astype(np.float32) / 255.0
-        mean_mask = stack.mean(axis=0)
-        binary_mask = (mean_mask > thr).astype(np.uint8) * 255
+        # stack: [V, n, H, W] where V is number of versions.
+        stack = np.stack(mask_arrays, axis=0)
+        mean_stack = stack.mean(axis=0)  # [n, H, W]
+        binary_stack = mean_stack > thr  # bool [n, H, W]
 
-        out_path = out_dir / filename
+        name = Path(filename)
+        stem = name.stem
+
+        # Save stacked per-object mask as .npy with shape [n, H, W].
+        out_npy = out_dir / f"{stem}.npy"
+        np.save(str(out_npy), binary_stack)
+
+        # Also save a union mask over all objects as PNG for visualization.
+        union_mask = binary_stack.any(axis=0).astype(np.uint8) * 255  # [H, W]
+        out_png = out_dir / f"{stem}.png"
         cv2.imwrite(
-            str(out_path),
-            binary_mask,
+            str(out_png),
+            union_mask,
             [cv2.IMWRITE_PNG_COMPRESSION, 9],
         )
 
         if debug:
             try:
+                # Precompute a simple color mask for per-object visualization.
+                palette = np.array(
+                    [
+                        [0, 255, 0],
+                        [255, 0, 0],
+                        [0, 200, 255],
+                        [255, 165, 0],
+                        [255, 0, 255],
+                        [0, 255, 255],
+                    ],
+                    dtype=np.uint8,
+                )
+                color_mask = np.zeros((*union_mask.shape, 3), dtype=np.uint8)
+                for idx, obj_mask in enumerate(binary_stack):
+                    if obj_mask.any():
+                        color_mask[obj_mask] = palette[idx % len(palette)]
+
                 if debug_rgb_root is not None:
                     # Try to find the corresponding RGB image either under
-                    # RGB_ROOT/<episode>/<filename> or RGB_ROOT/<filename>.
+                    # RGB_ROOT/<episode>/<stem>.png or RGB_ROOT/<filename>.
                     rgb_paths = [
+                        debug_rgb_root / episode_dir.name / f"{stem}.png",
+                        debug_rgb_root / episode_dir.name / f"{stem}.jpg",
                         debug_rgb_root / episode_dir.name / filename,
+                        debug_rgb_root / f"{stem}.png",
+                        debug_rgb_root / f"{stem}.jpg",
                         debug_rgb_root / filename,
                     ]
                     rgb_img = None
                     for rgb_path in rgb_paths:
                         if rgb_path.is_file():
                             rgb_img = cv2.imread(str(rgb_path), cv2.IMREAD_COLOR)
-                            if rgb_img is not None:
-                                break
+                        if rgb_img is not None:
+                            break
 
                     if rgb_img is not None:
-                        if rgb_img.shape[:2] != binary_mask.shape[:2]:
+                        if rgb_img.shape[:2] != union_mask.shape[:2]:
                             rgb_img = cv2.resize(
                                 rgb_img,
-                                (binary_mask.shape[1], binary_mask.shape[0]),
+                                (union_mask.shape[1], union_mask.shape[0]),
                                 interpolation=cv2.INTER_LINEAR,
                             )
 
                         overlay = rgb_img.copy()
-                        mask_bool = binary_mask > 0
+                        mask_bool = union_mask > 0
                         overlay[mask_bool] = (
                             0.4 * overlay[mask_bool]
-                            + 0.6 * np.array([0, 0, 255], dtype=np.float32)
+                            + 0.6 * color_mask[mask_bool].astype(np.float32)
                         ).astype(np.uint8)
 
                         cv2.imshow("Aggregated mask overlay", overlay)
                     else:
-                        cv2.imshow("Aggregated mask", binary_mask)
+                        # Proceed without RGB; show per-object colors only.
+                        cv2.imshow("Aggregated mask", color_mask)
                 else:
-                    cv2.imshow("Aggregated mask", binary_mask)
+                    cv2.imshow("Aggregated mask", color_mask if color_mask.any() else union_mask)
 
                 # Short delay to allow the window to refresh; close with standard UI.
                 cv2.waitKey(1)

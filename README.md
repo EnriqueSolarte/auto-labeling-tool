@@ -2,6 +2,50 @@
 
 Utilities in this workspace focus on preparing RGB-only datasets (no depth or lidar) for downstream autolabeling. 
 
+## Usage
+
+1) Inspect a sequence (optional): run the LK tracker to quickly glance at motion and pick a good annotation frame.
+```bash
+python3 -m examples.lk_tracker_example --sequence-dir /workspace/assets/seq_images
+```
+
+2) Create masks with manual prompts: pick an initial frame, click objects, and propagate with SAM 2 (plain, recursive, or LK-assisted).
+```bash
+python3 create_masks_by_manual_prompts.py \
+  --sequence-dir /data/with_bed/rosbag2_2025_11_28-11_43_17 \
+  --method sam2_prop \
+  --output-dir /data/masks
+```
+This writes `.npy` mask stacks to `/data/masks/<episode>/<timestamp>/`.
+
+3) Aggregate multiple annotation passes: combine several mask versions into a single mean-voted result.
+```bash
+python3 aggregate_masks.py \
+  --masks-dir /data/masks \
+  --thr 0.5 \
+  --debug /data/with_bed    # optional overlay viewer - to visualize the mask and RGB
+```
+Aggregated masks land in `/data/masks/<episode>/average_mask/` as both `.npy` stacks and union `.png` overlays.
+
+4) Build a YOLO dataset from masks and RGB frames:
+```bash
+python3 create_training_dataset_from_masks.py \
+  --masks_dir /data/masks \
+  --images_dir /data/with_bed \
+  --output-root /data/training_data \
+  --val-ratio 0.2 \
+  --seed 42 \
+  --class-name bed
+```
+
+5) Visualize labels to sanity-check the split:
+```bash
+python3 visualize_training_dataset.py \
+  /data/training_data/20251204_072806 \
+  --split train \
+  --fraction 0.1
+```
+
 ## Interactive LK Keypoint Tracking
 
 For quick visual inspection of motion across a sequence of RGB frames, the `utils.lk_tracker` module provides an interactive Lucas–Kanade (LK) tracker. It expects a directory of images (e.g. the extracted rosbag frames) and lets you click UV points on the first frame, then visualizes how those points move through the entire sequence.
@@ -57,7 +101,7 @@ Example usage:
 ```bash
 cd /workspace
 python3 create_masks_by_manual_prompts.py \
-  /data/with_bed/rosbag2_2025_11_28-11_43_17 \
+  --sequence-dir /data/with_bed/rosbag2_2025_11_28-11_43_17 \
   --method sam2_prop
 ```
 
@@ -68,17 +112,34 @@ Key behavior:
   - `sam2_prop` – standard SAM 2 video predictor.
   - `sam2_prop_recur` – recursive variant that resamples prompts from the propagated mask.
   - `sam2_lkt` – LK tracking + SAM 2 image predictor.
-- Output masks are written as maximally compressed PNGs to:
+- Output masks are written as `.npy` stacks of shape `[n, H, W]` (boolean masks, one slice per object) to:
   - `/data/masks/<sequence_dir.name>/<timestamp>/<original_frame_filename>`
   - e.g. for input frame  
     `/data/with_bed/rosbag2_2025_11_28-11_43_17/rosbag2_2025_11_28-11_43_17_1764301397533622123.jpg`  
     the mask path becomes  
-    `/data/masks/rosbag2_2025_11_28-11_43_17/<timestamp>/rosbag2_2025_11_28-11_43_17_1764301397533622123.jpg`.
-- During execution, an OpenCV window shows an overlay of the current mask on the RGB frame; press `q` or `ESC` to stop early.
+    `/data/masks/rosbag2_2025_11_28-11_43_17/<timestamp>/rosbag2_2025_11_28-11_43_17_1764301397533622123.npy`.
+- During execution, an OpenCV window shows an overlay of the current (union) mask on the RGB frame; press `q` or `ESC` to stop early.
+
+## Mask Aggregation (`aggregate_masks.py`)
+
+When you generate multiple mask versions for the same episode (e.g., repeated annotation passes), use `aggregate_masks.py` to merge them. For each frame, masks are averaged across versions and thresholded (default `thr=0.5`), producing a consensus stack plus a union PNG for quick viewing.
+
+Example:
+
+```bash
+python3 aggregate_masks.py \
+  --masks-dir /data/masks \
+  --thr 0.6 \
+  --debug /data/with_bed   # optional overlay if RGB frames are available
+```
+
+Outputs go to `/data/masks/<episode>/average_mask/`. If you pass a single episode directory, the script aggregates just that episode.
 
 ## YOLO Training Dataset Creation (`create_training_dataset_from_masks.py`)
 
-Once you have masks, you can build a YOLO-style training dataset with `create_training_dataset_from_masks.py`. It pairs RGB images with binary masks, computes bounding boxes, and writes YOLO label files plus a `data.yaml`.
+Once you have masks, you can build a YOLO-style training dataset with `create_training_dataset_from_masks.py`. It pairs RGB images with mask files (including multi-object `.npy` stacks), computes per-object bounding boxes, and writes YOLO label files plus a `data.yaml`. Each slice in a mask stack becomes a separate YOLO row for that image.
+
+- When an `average_mask` directory exists, the script automatically prefers masks inside it; otherwise it uses whichever mask files it finds under the provided `--masks_dir`.
 
 Example:
 
