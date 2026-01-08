@@ -2,7 +2,7 @@
 # set -euo pipefail
 xhost +local:
 
-IMAGE="dev-container:dev"
+IMAGE="autolabeling:dev"
 CONTAINER_NAME="autolabeling-SAM2-dev"
 
 # this directory
@@ -25,7 +25,7 @@ else
         --volume="/media/q200/kike/docker_ws/docker_utils/:/docker_utils" \
         --volume="/media/datasets/rosbags-bishop-hospital:/data" \
         --volume="/media/q200/models_weights:/models" \
-        --volume="/${DIR}:/workspace" \
+        --volume="/${DIR}/../:/workspace" \
         -w /workspace \
         "${IMAGE}"
 fi
