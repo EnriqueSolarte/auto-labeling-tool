@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -179,6 +181,30 @@ def _show_overlay(
     return key in (27, ord("q"))
 
 
+def _prepare_sam2_video_dir(
+    sequence_dir: Path,
+    frame_paths: list[Path],
+    out_dir: Path,
+) -> tuple[Path, Path | None]:
+    if not frame_paths:
+        return sequence_dir, None
+    if all(path.stem.isdigit() for path in frame_paths):
+        return sequence_dir, None
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="sam2_numeric_frames_", dir=out_dir))
+    width = max(4, len(str(len(frame_paths) - 1)))
+    for idx, src in enumerate(frame_paths):
+        dst = tmp_dir / f"{idx:0{width}d}{src.suffix.lower()}"
+        try:
+            dst.symlink_to(src.resolve())
+        except OSError:
+            shutil.copy2(src, dst)
+
+    print(f"[sam2] Normalized frame names under {tmp_dir}")
+    return tmp_dir, tmp_dir
+
+
 def _collect_multi_object_points(
     anno_frame: np.ndarray,
 ) -> list[list[tuple[float, float]]]:
@@ -193,10 +219,18 @@ def _collect_multi_object_points(
     obj_idx = 1
     while True:
         print(f"[sam2_prop] Selecting points for object {obj_idx}.")
+        print("[sam2_prop] Left-click to add points; press ENTER/ESC/SPACE when done.")
         points = get_points_video(anno_frame)
         if not points:
             if not all_points:
-                print("[sam2_prop] No points selected; aborting.")
+                print("[sam2_prop] No points selected.")
+                try:
+                    rsp = input("[sam2_prop] Retry point selection? [y/N]: ").strip().lower()
+                except EOFError:
+                    rsp = "n"
+                if rsp in ("y", "yes"):
+                    continue
+                print("[sam2_prop] Aborting.")
             else:
                 print(
                     "[sam2_prop] No points for this object; "
@@ -252,121 +286,130 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         f"object(s) on frame {annotation_idx}"
     )
 
-    predictor = load_video_predictor(
-        checkpoint=VID_DEFAULT_CKPT,
-        model_config=str(VID_DEFAULT_CFG),
-        device="cuda:0",
-        vos_optimized=False,
+    sam2_video_dir, cleanup_dir = _prepare_sam2_video_dir(
+        sequence_dir,
+        frame_paths,
+        out_dir,
     )
-    inference_state = predictor.init_state(
-        video_path=str(sequence_dir),
-        offload_video_to_cpu=True,
-        offload_state_to_cpu=False,
-        async_loading_frames=True,
-    )
-
-    tracked_object_ids: list[int] = []
-    initial_masks: dict[int, np.ndarray] = {}
-
-    for idx, points in enumerate(all_points, start=1):
-        obj_id = idx
-        points_arr = np.asarray(points, dtype=np.float32)
-        labels = np.ones(points_arr.shape[0], dtype=np.int32)
-
-        frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
-            inference_state=inference_state,
-            frame_idx=annotation_idx,
-            obj_id=obj_id,
-            points=points_arr,
-            labels=labels,
+    try:
+        predictor = load_video_predictor(
+            checkpoint=VID_DEFAULT_CKPT,
+            model_config=str(VID_DEFAULT_CFG),
+            device="cuda:0",
+            vos_optimized=False,
+        )
+        inference_state = predictor.init_state(
+            video_path=str(sam2_video_dir),
+            offload_video_to_cpu=True,
+            offload_state_to_cpu=False,
+            async_loading_frames=True,
         )
 
-        if obj_id not in obj_ids:
-            continue
+        tracked_object_ids: list[int] = []
+        initial_masks: dict[int, np.ndarray] = {}
 
-        tracked_object_ids.append(obj_id)
-        pos = obj_ids.index(obj_id)
-        mask_np = tensor_mask_to_numpy(masks[pos])
-        initial_masks[obj_id] = mask_np
+        for idx, points in enumerate(all_points, start=1):
+            obj_id = idx
+            points_arr = np.asarray(points, dtype=np.float32)
+            labels = np.ones(points_arr.shape[0], dtype=np.int32)
 
-    if not tracked_object_ids:
-        print("[sam2_prop] No valid objects were initialized; aborting.")
-        cv2.destroyAllWindows()
-        return
+            frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
+                inference_state=inference_state,
+                frame_idx=annotation_idx,
+                obj_id=obj_id,
+                points=points_arr,
+                labels=labels,
+            )
 
-    # Determine the common mask shape and build stacked masks [n, H, W]
-    first_mask = next(iter(initial_masks.values()))
-    mask_shape = first_mask.shape
-    initial_stack: list[np.ndarray] = []
-    combined_initial_mask = np.zeros(mask_shape, dtype=bool)
-    for obj_id in tracked_object_ids:
-        mask_np = initial_masks.get(obj_id)
-        if mask_np is None:
-            mask_np = np.zeros(mask_shape, dtype=bool)
-        combined_initial_mask |= mask_np
-        initial_stack.append(mask_np.astype(bool))
+            if obj_id not in obj_ids:
+                continue
 
-    stacked_initial = np.stack(initial_stack, axis=0)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    init_out_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
-    np.save(str(init_out_path), stacked_initial)
-    print(
-        f"[sam2_prop] Saved stacked mask for frame {annotation_idx} "
-        f"with shape {stacked_initial.shape} to {init_out_path}"
-    )
+            tracked_object_ids.append(obj_id)
+            pos = obj_ids.index(obj_id)
+            mask_np = tensor_mask_to_numpy(masks[pos])
+            initial_masks[obj_id] = mask_np
 
-    if combined_initial_mask is not None:
-        if _show_overlay(
-            anno_frame,
-            stacked_initial,
-            "SAM2 Masks",
-            annotation_idx,
-            len(frame_paths),
-        ):
-            print("[sam2_prop] User requested exit during initial overlay.")
+        if not tracked_object_ids:
+            print("[sam2_prop] No valid objects were initialized; aborting.")
             cv2.destroyAllWindows()
             return
 
-    print("[sam2_prop] Starting propagation...")
-    for out_idx, obj_ids, mask_scores in predictor.propagate_in_video(
-        inference_state,
-        start_frame_idx=annotation_idx,
-        max_frame_num_to_track=None,
-    ):
-        combined_mask = np.zeros(mask_shape, dtype=bool)
-        frame_masks: list[np.ndarray] = []
+        # Determine the common mask shape and build stacked masks [n, H, W]
+        first_mask = next(iter(initial_masks.values()))
+        mask_shape = first_mask.shape
+        initial_stack: list[np.ndarray] = []
+        combined_initial_mask = np.zeros(mask_shape, dtype=bool)
         for obj_id in tracked_object_ids:
-            if obj_id in obj_ids:
-                pos = obj_ids.index(obj_id)
-                mask_np = tensor_mask_to_numpy(mask_scores[pos])
-            else:
+            mask_np = initial_masks.get(obj_id)
+            if mask_np is None:
                 mask_np = np.zeros(mask_shape, dtype=bool)
+            combined_initial_mask |= mask_np
+            initial_stack.append(mask_np.astype(bool))
 
-            frame_masks.append(mask_np.astype(bool))
-            combined_mask |= mask_np
+        stacked_initial = np.stack(initial_stack, axis=0)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        init_out_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
+        np.save(str(init_out_path), stacked_initial)
+        print(
+            f"[sam2_prop] Saved stacked mask for frame {annotation_idx} "
+            f"with shape {stacked_initial.shape} to {init_out_path}"
+        )
 
-        if frame_masks:
-            stacked = np.stack(frame_masks, axis=0)
-            out_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
-            np.save(str(out_path), stacked)
-            print(
-                f"[sam2_prop] Saved stacked mask for frame {out_idx} "
-                f"with shape {stacked.shape} to {out_path}"
-            )
+        if combined_initial_mask is not None:
+            if _show_overlay(
+                anno_frame,
+                stacked_initial,
+                "SAM2 Masks",
+                annotation_idx,
+                len(frame_paths),
+            ):
+                print("[sam2_prop] User requested exit during initial overlay.")
+                cv2.destroyAllWindows()
+                return
 
-        frame = read_frame(frame_paths[out_idx])
-        if _show_overlay(
-            frame,
-            stacked if frame_masks else combined_mask,
-            "SAM2 Masks",
-            out_idx,
-            len(frame_paths),
+        print("[sam2_prop] Starting propagation...")
+        for out_idx, obj_ids, mask_scores in predictor.propagate_in_video(
+            inference_state,
+            start_frame_idx=annotation_idx,
+            max_frame_num_to_track=None,
         ):
-            print(f"[sam2_prop] User requested exit at frame {out_idx}.")
-            break
+            combined_mask = np.zeros(mask_shape, dtype=bool)
+            frame_masks: list[np.ndarray] = []
+            for obj_id in tracked_object_ids:
+                if obj_id in obj_ids:
+                    pos = obj_ids.index(obj_id)
+                    mask_np = tensor_mask_to_numpy(mask_scores[pos])
+                else:
+                    mask_np = np.zeros(mask_shape, dtype=bool)
 
-    cv2.destroyAllWindows()
-    print("[sam2_prop] Finished.")
+                frame_masks.append(mask_np.astype(bool))
+                combined_mask |= mask_np
+
+            if frame_masks:
+                stacked = np.stack(frame_masks, axis=0)
+                out_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
+                np.save(str(out_path), stacked)
+                print(
+                    f"[sam2_prop] Saved stacked mask for frame {out_idx} "
+                    f"with shape {stacked.shape} to {out_path}"
+                )
+
+            frame = read_frame(frame_paths[out_idx])
+            if _show_overlay(
+                frame,
+                stacked if frame_masks else combined_mask,
+                "SAM2 Masks",
+                out_idx,
+                len(frame_paths),
+            ):
+                print(f"[sam2_prop] User requested exit at frame {out_idx}.")
+                break
+
+        cv2.destroyAllWindows()
+        print("[sam2_prop] Finished.")
+    finally:
+        if cleanup_dir is not None:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
 def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
@@ -397,89 +440,98 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
 
     print(f"[sam2_prop_recur] Collected {len(current_points)} initial points on frame {annotation_idx}")
 
-    predictor = load_video_predictor(
-        checkpoint=VID_DEFAULT_CKPT,
-        model_config=str(VID_DEFAULT_CFG),
-        device="cuda:0",
-        vos_optimized=False,
+    sam2_video_dir, cleanup_dir = _prepare_sam2_video_dir(
+        sequence_dir,
+        frame_paths,
+        out_dir,
     )
-    inference_state = predictor.init_state(
-        video_path=str(sequence_dir),
-        offload_video_to_cpu=True,
-        offload_state_to_cpu=False,
-        async_loading_frames=True,
-    )
+    try:
+        predictor = load_video_predictor(
+            checkpoint=VID_DEFAULT_CKPT,
+            model_config=str(VID_DEFAULT_CFG),
+            device="cuda:0",
+            vos_optimized=False,
+        )
+        inference_state = predictor.init_state(
+            video_path=str(sam2_video_dir),
+            offload_video_to_cpu=True,
+            offload_state_to_cpu=False,
+            async_loading_frames=True,
+        )
 
-    object_id = 1
-    samples_per_mask = 10
+        object_id = 1
+        samples_per_mask = 10
 
-    points_arr = np.asarray(current_points, dtype=np.float32)
-    labels = np.ones(points_arr.shape[0], dtype=np.int32)
+        points_arr = np.asarray(current_points, dtype=np.float32)
+        labels = np.ones(points_arr.shape[0], dtype=np.int32)
 
-    _, obj_ids, masks = predictor.add_new_points_or_box(
-        inference_state=inference_state,
-        frame_idx=annotation_idx,
-        obj_id=object_id,
-        points=points_arr,
-        labels=labels,
-    )
+        _, obj_ids, masks = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=annotation_idx,
+            obj_id=object_id,
+            points=points_arr,
+            labels=labels,
+        )
 
-    if object_id in obj_ids:
-        pos = obj_ids.index(object_id)
-        mask_np = tensor_mask_to_numpy(masks[pos])
-        mask_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
-        if _save_mask(mask_np, mask_path):
-            print(f"[sam2_prop_recur] Mask stack saved for frame {annotation_idx}: {mask_path}")
-        else:
-            print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
-        if _show_overlay(anno_frame, mask_np, "SAM2 Recursive Masks", annotation_idx, len(frame_paths)):
-            print("[sam2_prop_recur] User requested exit during initial overlay.")
-            cv2.destroyAllWindows()
-            return
+        if object_id in obj_ids:
+            pos = obj_ids.index(object_id)
+            mask_np = tensor_mask_to_numpy(masks[pos])
+            mask_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
+            if _save_mask(mask_np, mask_path):
+                print(f"[sam2_prop_recur] Mask stack saved for frame {annotation_idx}: {mask_path}")
+            else:
+                print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
+            if _show_overlay(anno_frame, mask_np, "SAM2 Recursive Masks", annotation_idx, len(frame_paths)):
+                print("[sam2_prop_recur] User requested exit during initial overlay.")
+                cv2.destroyAllWindows()
+                return
 
-    print("[sam2_prop_recur] Starting recursive propagation...")
-    for out_idx, obj_ids, mask_scores in predictor.propagate_in_video(
-        inference_state,
-        start_frame_idx=annotation_idx,
-        max_frame_num_to_track=None,
-    ):
-        if object_id not in obj_ids:
-            continue
-        pos = obj_ids.index(object_id)
-        mask_np = tensor_mask_to_numpy(mask_scores[pos])
-        mask_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
-        if _save_mask(mask_np, mask_path):
-            print(f"[sam2_prop_recur] Mask stack saved for frame {out_idx}: {mask_path}")
-        else:
-            print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {out_idx}: {mask_path}")
+        print("[sam2_prop_recur] Starting recursive propagation...")
+        for out_idx, obj_ids, mask_scores in predictor.propagate_in_video(
+            inference_state,
+            start_frame_idx=annotation_idx,
+            max_frame_num_to_track=None,
+        ):
+            if object_id not in obj_ids:
+                continue
+            pos = obj_ids.index(object_id)
+            mask_np = tensor_mask_to_numpy(mask_scores[pos])
+            mask_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
+            if _save_mask(mask_np, mask_path):
+                print(f"[sam2_prop_recur] Mask stack saved for frame {out_idx}: {mask_path}")
+            else:
+                print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {out_idx}: {mask_path}")
 
-        frame = read_frame(frame_paths[out_idx])
-        if _show_overlay(frame, mask_np, "SAM2 Recursive Masks", out_idx, len(frame_paths)):
-            print(f"[sam2_prop_recur] User requested exit at frame {out_idx}.")
-            break
+            frame = read_frame(frame_paths[out_idx])
+            if _show_overlay(frame, mask_np, "SAM2 Recursive Masks", out_idx, len(frame_paths)):
+                print(f"[sam2_prop_recur] User requested exit at frame {out_idx}.")
+                break
 
-        if samples_per_mask > 0:
-            sampled_points = sample_points_recursive(
-                mask_scores[pos],
-                num_samples=samples_per_mask,
-            )
-            if sampled_points:
-                current_points = sampled_points
-                points_arr = np.asarray(sampled_points, dtype=np.float32)
-                labels = np.ones(points_arr.shape[0], dtype=np.int32)
-                predictor.add_new_points_or_box(
-                    inference_state=inference_state,
-                    frame_idx=out_idx,
-                    obj_id=object_id,
-                    points=points_arr,
-                    labels=labels,
-                    clear_old_points=True,
+            if samples_per_mask > 0:
+                sampled_points = sample_points_recursive(
+                    mask_scores[pos],
+                    num_samples=samples_per_mask,
                 )
-                predictor.propagate_in_video_preflight(inference_state)
-                print(f"[sam2_prop_recur] Resampled {len(sampled_points)} points on frame {out_idx}.")
+                if sampled_points:
+                    current_points = sampled_points
+                    points_arr = np.asarray(sampled_points, dtype=np.float32)
+                    labels = np.ones(points_arr.shape[0], dtype=np.int32)
+                    predictor.add_new_points_or_box(
+                        inference_state=inference_state,
+                        frame_idx=out_idx,
+                        obj_id=object_id,
+                        points=points_arr,
+                        labels=labels,
+                        clear_old_points=True,
+                    )
+                    predictor.propagate_in_video_preflight(inference_state)
+                    print(f"[sam2_prop_recur] Resampled {len(sampled_points)} points on frame {out_idx}.")
 
-    cv2.destroyAllWindows()
-    print("[sam2_prop_recur] Finished.")
+        cv2.destroyAllWindows()
+        print("[sam2_prop_recur] Finished.")
+    finally:
+        if cleanup_dir is not None:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
 def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
@@ -566,7 +618,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sequence-dir",
-        required=True,
+        # required=True,
+        default="/workspace/assets/seq_images",
         type=Path,
         help="Directory containing an ordered list of RGB frames.",
     )
@@ -579,7 +632,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/data/masks"),
+        default=Path("/masks"),
         help=(
             "Root directory where masks will be stored; "
             "masks go to <output-dir>/{sequence_dir.name}/{timestamp}."

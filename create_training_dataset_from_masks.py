@@ -120,6 +120,14 @@ def _collect_samples(masks_dir: Path, images_dir: Path) -> list[Sample]:
     raw_mask_paths = _get_files_with_ext(masks_dir, MASK_EXTS)
     _log(f"Discovered {len(raw_mask_paths)} mask files under {masks_dir}")
     mask_paths = _filter_average_masks(raw_mask_paths, masks_dir)
+    if (
+        masks_dir.name != "average_mask"
+        and raw_mask_paths
+        and not any("average_mask" in p.parts for p in raw_mask_paths)
+    ):
+        raise RuntimeError(
+            f"No average_mask directory found under {masks_dir}; refusing to process other masks."
+        )
     if len(mask_paths) != len(raw_mask_paths):
         _log(f"Filtered to {len(mask_paths)} masks within average_mask directories")
     samples_fast: list[Sample] = []

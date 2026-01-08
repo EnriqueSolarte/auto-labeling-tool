@@ -1,6 +1,7 @@
 # RGB Autolabeling
 
 Utilities in this workspace focus on preparing RGB-only datasets (no depth or lidar) for downstream autolabeling. 
+For a concise end-to-end walkthrough, see `autolabeling.md`.
 
 ## Usage
 

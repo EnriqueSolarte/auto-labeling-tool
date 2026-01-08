@@ -118,9 +118,19 @@ def list_frame_paths(sequence_dir: Path) -> List[Path]:
     if not sequence_dir.is_dir():
         raise FileNotFoundError(f"Sequence directory not found: {sequence_dir}")
     exts = {".jpg", ".jpeg", ".png", ".bmp", ".tiff"}
-    paths = sorted(p for p in sequence_dir.iterdir() if p.suffix.lower() in exts)
+    paths = [p for p in sequence_dir.iterdir() if p.suffix.lower() in exts]
     if not paths:
         raise ValueError(f"No image files found in {sequence_dir}")
+    numeric_stems: list[int | None] = []
+    for path in paths:
+        try:
+            numeric_stems.append(int(path.stem))
+        except ValueError:
+            numeric_stems.append(None)
+    if all(stem is not None for stem in numeric_stems):
+        paths = [p for _, p in sorted(zip(numeric_stems, paths), key=lambda item: item[0])]
+    else:
+        paths = sorted(paths)
     return paths
 
 

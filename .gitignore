@@ -55,3 +55,5 @@ cython_debug/
 
 # Project-specific generated data
 /data/
+masks/
+train_data/
