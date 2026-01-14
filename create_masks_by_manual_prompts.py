@@ -207,6 +207,7 @@ def _prepare_sam2_video_dir(
 
 def _collect_multi_object_points(
     anno_frame: np.ndarray,
+    allow_multiple: bool = True,
 ) -> list[list[tuple[float, float]]]:
     """
     Let the user select click prompts for one or more objects on the same frame.
@@ -242,6 +243,8 @@ def _collect_multi_object_points(
             f"[sam2_prop] Collected {len(points)} points for object {obj_idx} "
             f"on annotation frame."
         )
+        if not allow_multiple:
+            break
         try:
             rsp = input(
                 "[sam2_prop] Add another object? [y/N]: "
@@ -254,7 +257,12 @@ def _collect_multi_object_points(
     return all_points
 
 
-def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
+def run_sam2_prop(
+    sequence_dir: Path,
+    out_dir: Path,
+    init_idx: int = 0,
+    allow_multiple: bool = True,
+) -> None:
     frame_paths = list_frame_paths(sequence_dir)
     if not frame_paths:
         print(f"[sam2_prop] No frames found in {sequence_dir}")
@@ -275,7 +283,7 @@ def run_sam2_prop(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     print(f"[sam2_prop] Selected frame index: {annotation_idx}")
 
     anno_frame = read_frame(frame_paths[annotation_idx])
-    all_points = _collect_multi_object_points(anno_frame)
+    all_points = _collect_multi_object_points(anno_frame, allow_multiple=allow_multiple)
     if not all_points:
         print("[sam2_prop] No objects were defined; aborting.")
         return
@@ -647,6 +655,11 @@ def parse_args() -> argparse.Namespace:
             "when choosing the first annotated frame."
         ),
     )
+    parser.add_argument(
+        "--multi-object",
+        action="store_true",
+        help="Allow selecting prompts for multiple objects.",
+    )
     return parser.parse_args()
 
 def main() -> None:
@@ -661,7 +674,13 @@ def main() -> None:
     print(f"[main] Masks will be saved under: {out_dir}")
 
     if args.method == "sam2_prop":
-        run_sam2_prop(sequence_dir, out_dir, init_idx=args.init_idx)
+        allow_multiple = args.multi_object
+        run_sam2_prop(
+            sequence_dir,
+            out_dir,
+            init_idx=args.init_idx,
+            allow_multiple=allow_multiple,
+        )
     elif args.method == "sam2_prop_recur":
         run_sam2_prop_recursive(sequence_dir, out_dir, init_idx=args.init_idx)
     else:

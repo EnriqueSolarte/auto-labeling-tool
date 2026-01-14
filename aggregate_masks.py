@@ -65,7 +65,9 @@ def _aggregate_masks_for_episode(
 
     filename_index = _build_filename_index(version_dirs)
 
-    for filename, paths in filename_index.items():
+    items = sorted(filename_index.items(), key=lambda item: item[0])
+    total = len(items)
+    for idx, (filename, paths) in enumerate(items):
         # Each mask file may be:
         #   - a stacked array [n, H, W] stored as .npy, or
         #   - a single 2D mask [H, W] image, which we treat as [1, H, W].
@@ -137,9 +139,15 @@ def _aggregate_masks_for_episode(
                     dtype=np.uint8,
                 )
                 color_mask = np.zeros((*union_mask.shape, 3), dtype=np.uint8)
-                for idx, obj_mask in enumerate(binary_stack):
+                for obj_idx, obj_mask in enumerate(binary_stack):
                     if obj_mask.any():
-                        color_mask[obj_mask] = palette[idx % len(palette)]
+                        color_mask[obj_mask] = palette[obj_idx % len(palette)]
+
+                label_idx = idx
+                if stem.isdigit():
+                    label_idx = int(stem)
+                label = f"Frame {label_idx} / {total-1}"
+                label_pos = (10, 24)
 
                 if debug_rgb_root is not None:
                     # Try to find the corresponding RGB image either under
@@ -174,12 +182,43 @@ def _aggregate_masks_for_episode(
                             + 0.6 * color_mask[mask_bool].astype(np.float32)
                         ).astype(np.uint8)
 
+                        cv2.putText(
+                            overlay,
+                            label,
+                            label_pos,
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (255, 255, 255),
+                            2,
+                            cv2.LINE_AA,
+                        )
                         cv2.imshow("Aggregated mask overlay", overlay)
                     else:
                         # Proceed without RGB; show per-object colors only.
+                        cv2.putText(
+                            color_mask,
+                            label,
+                            label_pos,
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (255, 255, 255),
+                            2,
+                            cv2.LINE_AA,
+                        )
                         cv2.imshow("Aggregated mask", color_mask)
                 else:
-                    cv2.imshow("Aggregated mask", color_mask if color_mask.any() else union_mask)
+                    disp = color_mask if color_mask.any() else union_mask
+                    cv2.putText(
+                        disp,
+                        label,
+                        label_pos,
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    cv2.imshow("Aggregated mask", disp)
 
                 # Short delay to allow the window to refresh; close with standard UI.
                 cv2.waitKey(1)
