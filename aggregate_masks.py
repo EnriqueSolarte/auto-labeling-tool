@@ -9,6 +9,7 @@ import shutil
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 
 def _list_episode_dirs(root: Path) -> List[Path]:
@@ -46,6 +47,7 @@ def _aggregate_masks_for_episode(
     debug: bool = False,
     debug_rgb_root: Optional[Path] = None,
     thr: float = 0.5,
+    init_idx: Optional[int] = None,
 ) -> None:
     """
     Aggregate all mask versions for a single episode using mean > `thr`.
@@ -59,15 +61,25 @@ def _aggregate_masks_for_episode(
         return
 
     out_dir = episode_dir / "average_mask"
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
+    if init_idx is None:
+        if out_dir.exists():
+            shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     filename_index = _build_filename_index(version_dirs)
 
     items = sorted(filename_index.items(), key=lambda item: item[0])
+    total_all = len(items)
+    start_idx = init_idx or 0
+    if start_idx > 0:
+        if start_idx >= total_all:
+            return
+        items = items[start_idx:]
     total = len(items)
-    for idx, (filename, paths) in enumerate(items):
+    for idx, (filename, paths) in enumerate(
+        tqdm(items, total=total, desc=episode_dir.name, unit="frame"),
+        start=start_idx,
+    ):
         # Each mask file may be:
         #   - a stacked array [n, H, W] stored as .npy, or
         #   - a single 2D mask [H, W] image, which we treat as [1, H, W].
@@ -146,7 +158,7 @@ def _aggregate_masks_for_episode(
                 label_idx = idx
                 if stem.isdigit():
                     label_idx = int(stem)
-                label = f"Frame {label_idx} / {total-1}"
+                label = f"Frame {label_idx} / {total_all-1}"
                 label_pos = (10, 24)
 
                 if debug_rgb_root is not None:
@@ -232,6 +244,7 @@ def aggregate_all_episodes(
     debug: bool = False,
     debug_rgb_root: Optional[Path] = None,
     thr: float = 0.5,
+    init_idx: Optional[int] = None,
 ) -> None:
     """
     Aggregate masks for all episodes under `masks_dir`.
@@ -255,6 +268,7 @@ def aggregate_all_episodes(
                 debug=debug,
                 debug_rgb_root=debug_rgb_root,
                 thr=thr,
+                init_idx=init_idx,
             )
             return
 
@@ -264,6 +278,7 @@ def aggregate_all_episodes(
             debug=debug,
             debug_rgb_root=debug_rgb_root,
             thr=thr,
+            init_idx=init_idx,
         )
 
 
@@ -304,6 +319,16 @@ def _parse_args() -> argparse.Namespace:
         default=0.5,
         help="Threshold in [0, 1] on the mean mask used to binarize; default 0.5.",
     )
+    parser.add_argument(
+        "--init-idx",
+        type=int,
+        default=None,
+        help=(
+            "Start aggregating from this frame index after filename sorting; "
+            "useful for resuming long runs. When provided, existing "
+            "average_mask outputs are preserved."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -319,6 +344,7 @@ def main() -> None:
         debug=debug,
         debug_rgb_root=debug_rgb_root,
         thr=args.thr,
+        init_idx=args.init_idx,
     )
 
 
