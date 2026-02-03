@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,7 @@ from tqdm import tqdm
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
-MASK_EXTS = {".png", ".bmp", ".tiff", ".tif", ".jpg", ".npy"}
+MASK_EXTS = {".npy"}
 
 
 @dataclass(frozen=True)
@@ -105,14 +106,16 @@ def _bboxes_from_mask_stack(mask_stack: np.ndarray) -> list[tuple[float, float, 
         cx = x_min + box_w / 2.0
         cy = y_min + box_h / 2.0
 
-        boxes.append(
-            (
+        bbx =(
                 cx / float(w),
                 cy / float(h),
                 box_w / float(w),
                 box_h / float(h),
             )
-        )
+        is_ok = compute_affordance_bbx(*bbx)
+        if not is_ok:
+            continue
+        boxes.append(bbx)
     return boxes
 
 
@@ -267,20 +270,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--masks_dir",
-        default=Path("/data/masks"),
+        default=Path("/data/bishop/masks/mask_2026-01-19/bag_2026-01-13_15-04-27_65"),
         type=Path,
         help="Root directory containing mask files (.png or .npy stacks; may include subdirectories).",
     )
     parser.add_argument(
         "--images_dir",
-        default=Path("/data/raw_data/with_bed"),
+        default=Path("/data/bishop/raw_data/issue__wrong_bed_estimations__2026-01-16_100829/images/bag_2026-01-13_15-04-27_65"),
         type=Path,
         help="Root directory containing RGB images corresponding to the masks.",
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("/data/training_data"),
+        default=Path("/data/bishop/training_data"),
         help="Root directory where the training dataset will be created.",
     )
     parser.add_argument(
@@ -303,7 +306,9 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-
+def compute_affordance_bbx(cx, cy, bbx_w, bbx_h, dist_thr=0.8, size_thr=0.05):
+        return True
+    
 def main() -> None:
     args = parse_args()
     masks_dir: Path = args.masks_dir.expanduser().resolve()
