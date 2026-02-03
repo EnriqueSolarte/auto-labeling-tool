@@ -83,16 +83,21 @@ def _load_yolo_boxes(label_path: Path, img_shape: tuple[int, int]) -> list[tuple
     return boxes
 
 
-def _draw_boxes(img, boxes: Sequence[tuple[int, int, int, int]], label: str) -> None:
+def _draw_boxes(
+    img,
+    boxes: Sequence[tuple[int, int, int, int]],
+    label: str,
+    color: tuple[int, int, int],
+) -> None:
     for x1, y1, x2, y2 in boxes:
-        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
     cv2.putText(
         img,
         label,
         (10, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.9,
-        (0, 255, 0),
+        0.5,
+        color,
         2,
         cv2.LINE_AA,
     )
@@ -166,6 +171,12 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Delay per frame in ms for window playback (0 = wait for key).",
     )
+    parser.add_argument(
+        "--int-idx",
+        type=int,
+        default=0,
+        help="Start index in the sorted frame list (0-based).",
+    )
     return parser.parse_args()
 
 
@@ -206,9 +217,15 @@ def main() -> None:
     blacklisted = _read_blacklist(blacklist_path)
     window_name = f"{split} annotation review"
 
-    for idx, img_path in enumerate(sorted_paths, start=1):
+    idx = int(args.int_idx)
+    total = len(sorted_paths)
+    if idx < 0 or idx >= total:
+        raise ValueError(f"int-idx must be in [0, {total - 1}], got {idx}")
+    while 0 <= idx < total:
+        img_path = sorted_paths[idx]
         img = cv2.imread(str(img_path))
         if img is None:
+            idx += 1
             continue
 
         rel = img_path.relative_to(images_dir)
@@ -216,12 +233,15 @@ def main() -> None:
         label_path = labels_dir / rel.with_suffix(".txt")
         boxes = _load_yolo_boxes(label_path, img.shape[:2])
 
-        label = f"{rel_name} ({idx}/{len(sorted_paths)})"
-        _draw_boxes(img, boxes, label)
+        label = f"{rel_name} ({idx + 1}/{total})"
         if rel_name in blacklisted:
-            _draw_status(img, "REJECTED", (0, 0, 255))
+            box_color = (0, 0, 255)
+            _draw_boxes(img, boxes, label, box_color)
+            _draw_status(img, "REJECTED", box_color)
         else:
-            _draw_status(img, "ACCEPTED", (0, 200, 0))
+            box_color = (0, 200, 0)
+            _draw_boxes(img, boxes, label, box_color)
+            _draw_status(img, "ACCEPTED", box_color)
 
         cv2.imshow(window_name, img)
         key = cv2.waitKey(args.wait_ms) & 0xFF
@@ -229,10 +249,27 @@ def main() -> None:
         if key in (27, ord("q"), ord("Q")):
             break
         if key in (ord("d"), ord("D")):
-            if rel_name not in blacklisted:
+            if rel_name in blacklisted:
+                blacklisted.remove(rel_name)
+                blacklist_path.write_text(
+                    "\n".join(sorted(blacklisted)) + ("\n" if blacklisted else ""),
+                    encoding="utf-8",
+                )
+                print(f"removed from blacklist: {rel_name}")
+            else:
                 _append_blacklist(blacklist_path, rel_name)
                 blacklisted.add(rel_name)
                 print(f"blacklisted: {rel_name}")
+            idx += 1
+            continue
+        if key in (ord("j"), ord("J")):
+            idx = max(0, idx - 1)
+            continue
+        if key in (ord("l"), ord("L")):
+            idx += 1
+            continue
+        if key == 255:
+            idx += 1
 
     cv2.destroyAllWindows()
 
