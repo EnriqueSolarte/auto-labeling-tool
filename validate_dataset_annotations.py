@@ -130,6 +130,36 @@ def _append_blacklist(path: Path, entry: str) -> None:
         f.write(entry + "\n")
 
 
+def _prune_dataset(
+    images_dir: Path,
+    labels_dir: Path,
+    blacklisted: set[str],
+) -> None:
+    removed_images = 0
+    removed_labels = 0
+    if not blacklisted:
+        print("black_list.txt is empty; nothing to prune.")
+        return
+
+    for img_path in _list_image_files(images_dir):
+        if img_path.name not in blacklisted:
+            continue
+        try:
+            img_path.unlink()
+            removed_images += 1
+        except FileNotFoundError:
+            pass
+
+        label_path = labels_dir / img_path.relative_to(images_dir).with_suffix(".txt")
+        try:
+            label_path.unlink()
+            removed_labels += 1
+        except FileNotFoundError:
+            pass
+
+    print(f"Pruned {removed_images} images and {removed_labels} labels.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -177,6 +207,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Start index in the sorted frame list (0-based).",
     )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Remove blacklisted frames (and their labels) from the dataset.",
+    )
     return parser.parse_args()
 
 
@@ -217,6 +252,10 @@ def main() -> None:
     blacklisted = _read_blacklist(blacklist_path)
     window_name = f"{split} annotation review"
 
+    if args.prune:
+        _prune_dataset(images_dir, labels_dir, blacklisted)
+        return
+
     idx = int(args.int_idx)
     total = len(sorted_paths)
     if idx < 0 or idx >= total:
@@ -248,7 +287,14 @@ def main() -> None:
 
         if key in (27, ord("q"), ord("Q")):
             break
-        if key in (ord("d"), ord("D")):
+        if key in (ord("x"), ord("X")):
+            if rel_name not in blacklisted:
+                _append_blacklist(blacklist_path, rel_name)
+                blacklisted.add(rel_name)
+                print(f"blacklisted: {rel_name}")
+            idx += 1
+            continue
+        if key in (ord("a"), ord("A")):
             if rel_name in blacklisted:
                 blacklisted.remove(rel_name)
                 blacklist_path.write_text(
@@ -256,10 +302,6 @@ def main() -> None:
                     encoding="utf-8",
                 )
                 print(f"removed from blacklist: {rel_name}")
-            else:
-                _append_blacklist(blacklist_path, rel_name)
-                blacklisted.add(rel_name)
-                print(f"blacklisted: {rel_name}")
             idx += 1
             continue
         if key in (ord("j"), ord("J")):
