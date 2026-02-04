@@ -117,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--split",
-        choices=["train", "val"],
+        choices=["train", "val", "test"],
         default="train",
         help="Which split to visualize.",
     )
