@@ -130,6 +130,13 @@ def _append_blacklist(path: Path, entry: str) -> None:
         f.write(entry + "\n")
 
 
+def _ensure_label_file(label_path: Path) -> None:
+    if label_path.exists():
+        return
+    label_path.parent.mkdir(parents=True, exist_ok=True)
+    label_path.touch()
+
+
 def _prune_dataset(
     images_dir: Path,
     labels_dir: Path,
@@ -212,6 +219,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Remove blacklisted frames (and their labels) from the dataset.",
     )
+    parser.add_argument(
+        "--ensure-labels",
+        action="store_true",
+        help="Create empty label files for images missing a .txt label file.",
+    )
     return parser.parse_args()
 
 
@@ -252,6 +264,15 @@ def main() -> None:
     blacklisted = _read_blacklist(blacklist_path)
     window_name = f"{split} annotation review"
 
+    if args.ensure_labels:
+        image_paths = _list_image_files(images_dir)
+        for img_path in image_paths:
+            rel = img_path.relative_to(images_dir)
+            label_path = labels_dir / rel.with_suffix(".txt")
+            _ensure_label_file(label_path)
+        print(f"Ensured labels for {len(image_paths)} images.")
+        return
+
     if args.prune:
         _prune_dataset(images_dir, labels_dir, blacklisted)
         return
@@ -270,6 +291,7 @@ def main() -> None:
         rel = img_path.relative_to(images_dir)
         rel_name = rel.name
         label_path = labels_dir / rel.with_suffix(".txt")
+        _ensure_label_file(label_path)
         boxes = _load_yolo_boxes(label_path, img.shape[:2])
 
         label = f"{rel_name} ({idx + 1}/{total})"
