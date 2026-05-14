@@ -1,0 +1,23 @@
+services:
+  auto-labeling:
+    image: auto-labeling:dev
+    container_name: auto-labeling-dev
+    stdin_open: true
+    tty: true
+    privileged: true
+    runtime: nvidia
+    gpus: all
+    network_mode: bridge
+    ipc: host
+    environment:
+      DISPLAY: ${DISPLAY}
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /media/q200/kike/docker_ws/docker_utils/:/docker_utils
+      - /media/q200/models_weights:/models
+      - /media/v1-data/panda_ai_dataset:/data/panda
+      - /media/v1-data/hospital-bishop-data:/data/bishop
+    working_dir: /workspace
+    command: bash -lc 'auto-label-tool install-completion; exec bash'

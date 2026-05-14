@@ -14,9 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     zip \
     fontconfig \
+    fonts-dejavu-core \
     byobu \
-    unzip && \    
+    unzip && \
     rm -rf /var/lib/apt/lists/*
+
+ENV QT_QPA_FONTDIR=/usr/share/fonts/truetype/dejavu
 
 # Install Python 3.11 and pip
 RUN apt-get update && apt-get install -y software-properties-common && \
@@ -39,7 +42,7 @@ RUN apt-get update && \
     libqt5core5a \
     libqt5gui5 \
     libqt5widgets5 \
-    libcurl4 
+    libcurl4
 
 RUN apt-get update && apt-get install -y \
     libx11-xcb1 \
@@ -57,8 +60,12 @@ RUN apt-get update && apt-get install -y \
     libxcb-xinerama0 \
     libxcb-util1
 
-COPY dockerfile.auto-labeling /dockerfile.auto-labeling
+COPY docker/dockerfile.auto-labeling /dockerfile.auto-labeling
 COPY requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
+
+WORKDIR /workspace
+COPY . /workspace
+RUN pip install --no-cache-dir .
 
 CMD ["bash"]
