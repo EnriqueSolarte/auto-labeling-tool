@@ -20,10 +20,11 @@ def _parse_args() -> argparse.Namespace:
         description=(
             "Merge multiple YOLO datasets into a new dataset directory.\n\n"
             "Example:\n"
-            "  python marge_dataset.py \\\n"
-            "    --datasets /data/bishop/training_data/20260203_005616 "
-            "/data/bishop/training_data/20260203_023009 "
-            "/data/bishop/training_data/20260204_135803"
+            "  python merge_dataset.py \\\n"
+            "    --datasets /data/training_data/dataset_a "
+            "/data/training_data/dataset_b "
+            "/data/training_data/dataset_c \\\n"
+            "    --output-root /data/training_data"
         )
     )
     parser.add_argument(

@@ -192,7 +192,8 @@ def _prepare_sam2_video_dir(
         return sequence_dir, None
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    tmp_dir = Path(tempfile.mkdtemp(prefix="sam2_numeric_frames_", dir=out_dir))
+    tmp_dir = Path(tempfile.mkdtemp(
+        prefix="sam2_numeric_frames_", dir=out_dir))
     width = max(4, len(str(len(frame_paths) - 1)))
     for idx, src in enumerate(frame_paths):
         dst = tmp_dir / f"{idx:0{width}d}{src.suffix.lower()}"
@@ -226,7 +227,8 @@ def _collect_multi_object_points(
             if not all_points:
                 print("[sam2_prop] No points selected.")
                 try:
-                    rsp = input("[sam2_prop] Retry point selection? [y/N]: ").strip().lower()
+                    rsp = input(
+                        "[sam2_prop] Retry point selection? [y/N]: ").strip().lower()
                 except EOFError:
                     rsp = "n"
                 if rsp in ("y", "yes"):
@@ -283,7 +285,8 @@ def run_sam2_prop(
     print(f"[sam2_prop] Selected frame index: {annotation_idx}")
 
     anno_frame = read_frame(frame_paths[annotation_idx])
-    all_points = _collect_multi_object_points(anno_frame, allow_multiple=allow_multiple)
+    all_points = _collect_multi_object_points(
+        anno_frame, allow_multiple=allow_multiple)
     if not all_points:
         print("[sam2_prop] No objects were defined; aborting.")
         return
@@ -426,7 +429,8 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
         print(f"[sam2_prop_recur] No frames found in {sequence_dir}")
         return
 
-    print(f"[sam2_prop_recur] Found {len(frame_paths)} frames in {sequence_dir}")
+    print(
+        f"[sam2_prop_recur] Found {len(frame_paths)} frames in {sequence_dir}")
     print(f"[sam2_prop_recur] Output directory: {out_dir}")
 
     annotation_idx_opt = _select_annotation_frame(
@@ -446,7 +450,8 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
         print("[sam2_prop_recur] No points selected; aborting.")
         return
 
-    print(f"[sam2_prop_recur] Collected {len(current_points)} initial points on frame {annotation_idx}")
+    print(
+        f"[sam2_prop_recur] Collected {len(current_points)} initial points on frame {annotation_idx}")
 
     sam2_video_dir, cleanup_dir = _prepare_sam2_video_dir(
         sequence_dir,
@@ -486,9 +491,11 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
             mask_np = tensor_mask_to_numpy(masks[pos])
             mask_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
             if _save_mask(mask_np, mask_path):
-                print(f"[sam2_prop_recur] Mask stack saved for frame {annotation_idx}: {mask_path}")
+                print(
+                    f"[sam2_prop_recur] Mask stack saved for frame {annotation_idx}: {mask_path}")
             else:
-                print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
+                print(
+                    f"[sam2_prop_recur] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
             if _show_overlay(anno_frame, mask_np, "SAM2 Recursive Masks", annotation_idx, len(frame_paths)):
                 print("[sam2_prop_recur] User requested exit during initial overlay.")
                 cv2.destroyAllWindows()
@@ -506,13 +513,16 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
             mask_np = tensor_mask_to_numpy(mask_scores[pos])
             mask_path = out_dir / f"{frame_paths[out_idx].stem}.npy"
             if _save_mask(mask_np, mask_path):
-                print(f"[sam2_prop_recur] Mask stack saved for frame {out_idx}: {mask_path}")
+                print(
+                    f"[sam2_prop_recur] Mask stack saved for frame {out_idx}: {mask_path}")
             else:
-                print(f"[sam2_prop_recur] Mask stack NOT SAVED for frame {out_idx}: {mask_path}")
+                print(
+                    f"[sam2_prop_recur] Mask stack NOT SAVED for frame {out_idx}: {mask_path}")
 
             frame = read_frame(frame_paths[out_idx])
             if _show_overlay(frame, mask_np, "SAM2 Recursive Masks", out_idx, len(frame_paths)):
-                print(f"[sam2_prop_recur] User requested exit at frame {out_idx}.")
+                print(
+                    f"[sam2_prop_recur] User requested exit at frame {out_idx}.")
                 break
 
             if samples_per_mask > 0:
@@ -533,7 +543,8 @@ def run_sam2_prop_recursive(sequence_dir: Path, out_dir: Path, init_idx: int = 0
                         clear_old_points=True,
                     )
                     predictor.propagate_in_video_preflight(inference_state)
-                    print(f"[sam2_prop_recur] Resampled {len(sampled_points)} points on frame {out_idx}.")
+                    print(
+                        f"[sam2_prop_recur] Resampled {len(sampled_points)} points on frame {out_idx}.")
 
         cv2.destroyAllWindows()
         print("[sam2_prop_recur] Finished.")
@@ -576,9 +587,11 @@ def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
     mask, _ = compute_seg_mask(points, frames[annotation_idx], sam_model)
     mask_path = out_dir / f"{frame_paths[annotation_idx].stem}.npy"
     if _save_mask(mask, mask_path):
-        print(f"[sam2_lkt] Mask stack saved for frame {annotation_idx}: {mask_path}")
+        print(
+            f"[sam2_lkt] Mask stack saved for frame {annotation_idx}: {mask_path}")
     else:
-        print(f"[sam2_lkt] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
+        print(
+            f"[sam2_lkt] Mask stack NOT SAVED for frame {annotation_idx}: {mask_path}")
     if _show_overlay(frames[annotation_idx], mask, "SAM2 LKT Masks", annotation_idx, len(frames)):
         print("[sam2_lkt] User requested exit during initial overlay.")
         cv2.destroyAllWindows()
@@ -602,7 +615,8 @@ def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         if _save_mask(mask, mask_path):
             print(f"[sam2_lkt] Mask stack saved for frame {idx}: {mask_path}")
         else:
-            print(f"[sam2_lkt] Mask stack NOT SAVED for frame {idx}: {mask_path}")
+            print(
+                f"[sam2_lkt] Mask stack NOT SAVED for frame {idx}: {mask_path}")
         if _show_overlay(frame, mask, "SAM2 LKT Masks", idx, len(frames)):
             print(f"[sam2_lkt] User requested exit at frame {idx}.")
             break
@@ -626,7 +640,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sequence-dir",
-        # required=True,
+        required=True,
         default="/workspace/assets/seq_images",
         type=Path,
         help="Directory containing an ordered list of RGB frames.",
@@ -661,6 +675,7 @@ def parse_args() -> argparse.Namespace:
         help="Allow selecting prompts for multiple objects.",
     )
     return parser.parse_args()
+
 
 def main() -> None:
     args = parse_args()

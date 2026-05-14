@@ -106,12 +106,12 @@ def _bboxes_from_mask_stack(mask_stack: np.ndarray) -> list[tuple[float, float, 
         cx = x_min + box_w / 2.0
         cy = y_min + box_h / 2.0
 
-        bbx =(
-                cx / float(w),
-                cy / float(h),
-                box_w / float(w),
-                box_h / float(h),
-            )
+        bbx = (
+            cx / float(w),
+            cy / float(h),
+            box_w / float(w),
+            box_h / float(h),
+        )
         is_ok = compute_affordance_bbx(*bbx)
         if not is_ok:
             continue
@@ -132,7 +132,8 @@ def _collect_samples(masks_dir: Path, images_dir: Path) -> list[Sample]:
             f"No average_mask directory found under {masks_dir}; refusing to process other masks."
         )
     if len(mask_paths) != len(raw_mask_paths):
-        _log(f"Filtered to {len(mask_paths)} masks within average_mask directories")
+        _log(
+            f"Filtered to {len(mask_paths)} masks within average_mask directories")
     samples_fast: list[Sample] = []
     unmatched_masks: list[Path] = []
 
@@ -141,7 +142,7 @@ def _collect_samples(masks_dir: Path, images_dir: Path) -> list[Sample]:
         rel_parts = list(rel.parts)
         if "average_mask" in rel_parts:
             idx = rel_parts.index("average_mask")
-            rel = Path(*rel_parts[:idx] + rel_parts[idx + 1 :])
+            rel = Path(*rel_parts[:idx] + rel_parts[idx + 1:])
         # Prefer a mirrored directory with the same stem (extension may differ).
         candidate_dir = images_dir / rel.parent
         candidate_img = None
@@ -152,7 +153,8 @@ def _collect_samples(masks_dir: Path, images_dir: Path) -> list[Sample]:
                 break
 
         if candidate_img is not None:
-            samples_fast.append(Sample(image_path=candidate_img, mask_path=mask_path))
+            samples_fast.append(
+                Sample(image_path=candidate_img, mask_path=mask_path))
         else:
             unmatched_masks.append(mask_path)
 
@@ -270,20 +272,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--masks_dir",
-        default=Path("/data/bishop/masks/mask_2026-01-19/bag_2026-01-13_15-04-27_65"),
+        required=True,
         type=Path,
         help="Root directory containing mask files (.png or .npy stacks; may include subdirectories).",
     )
     parser.add_argument(
         "--images_dir",
-        default=Path("/data/bishop/raw_data/issue__wrong_bed_estimations__2026-01-16_100829/images/bag_2026-01-13_15-04-27_65"),
+        required=True,
         type=Path,
         help="Root directory containing RGB images corresponding to the masks.",
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("/data/bishop/training_data"),
+        default=Path("/data/training_data"),
         help="Root directory where the training dataset will be created.",
     )
     parser.add_argument(
@@ -306,9 +308,11 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
 def compute_affordance_bbx(cx, cy, bbx_w, bbx_h, dist_thr=0.8, size_thr=0.05):
-        return True
-    
+    return True
+
+
 def main() -> None:
     args = parse_args()
     masks_dir: Path = args.masks_dir.expanduser().resolve()
@@ -327,10 +331,12 @@ def main() -> None:
 
     samples = _collect_samples(masks_dir, images_dir)
     if not samples:
-        raise RuntimeError("No samples found: ensure that mask files match image filenames.")
+        raise RuntimeError(
+            "No samples found: ensure that mask files match image filenames.")
     _log(f"Found {len(samples)} samples with matching masks and images")
 
-    train_samples, val_samples = _split_train_val(samples, val_ratio=float(args.val_ratio), seed=int(args.seed))
+    train_samples, val_samples = _split_train_val(
+        samples, val_ratio=float(args.val_ratio), seed=int(args.seed))
     _log(
         "Performed train/val split: %d train, %d val (val_ratio=%.2f, seed=%d)"
         % (len(train_samples), len(val_samples), float(args.val_ratio), int(args.seed))

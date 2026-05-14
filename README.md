@@ -2,6 +2,41 @@
 
 Utilities in this repository prepare RGB-only sequences for autolabeling and YOLO dataset creation.
 
+## Release Status
+
+Current target: `v0.1.0` internal alpha.
+
+This version is intended for internal teammates running the manual RGB-to-YOLO pipeline inside the provided Docker GPU environment, using SAM2 mounted from the host and datasets mounted under `/data`.
+
+It supports mask creation, mask aggregation, dataset generation, inspection, and annotation curation. It does not promise portability, full automation, training-quality guarantees, stable APIs, or safe destructive dataset editing.
+
+Before tagging or using this version, read `.agent-workspace/release-checklist.md` and `.agent-workspace/known-issues.md`.
+
+## Docker Setup
+
+The supported `v0.1.0` workflow runs inside Docker on a Linux host with an NVIDIA GPU and X11 display forwarding.
+
+```bash
+cp .env.example .env
+# edit MODEL_ROOT and DATA_ROOT in .env
+xhost +local:docker
+docker compose build autolabeling
+docker compose run --rm autolabeling
+```
+
+The container expects:
+
+- SAM2 files at `/models/sam2`
+- mounted datasets under `/data`
+- this repository at `/workspace`
+
+Legacy helpers are still available:
+
+```bash
+./docker/docker_build.sh
+./docker/docker_run.sh
+```
+
 ## Pipeline (Current)
 
 1. Create mask versions with manual prompts + SAM2 propagation.
