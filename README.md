@@ -14,7 +14,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Docker Setup
 
-The current repository uses the helper scripts in `docker/`; there is no Docker Compose file in this repo.
+The current repository uses the helper scripts and Docker Compose configuration
+in `docker/`.
 
 Build the image from the `docker/` directory:
 
@@ -29,7 +30,30 @@ Start or attach to the development container:
 ./docker_run.sh
 ```
 
-The run script expects a Linux host with an NVIDIA GPU and X11 display forwarding. Edit `docker/docker_run.sh` if your model or dataset paths are different.
+Or start the same development container with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+Attach a shell to the Compose container:
+
+```bash
+docker compose exec auto-labeling bash
+```
+
+Stop the Compose container:
+
+```bash
+docker compose down
+```
+
+The Compose command installs Bash completion for `auto-label-tool` when the
+container starts.
+
+The run script and Compose file expect a Linux host with an NVIDIA GPU and X11
+display forwarding. Edit `docker/docker_run.sh` or `docker/docker-compose.yml`
+if your model or dataset paths are different.
 
 ## Package Layout
 
