@@ -23,9 +23,10 @@ else
         --device=/dev/dri \
         --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
         --volume="/media/q200/kike/docker_ws/docker_utils/:/docker_utils" \
-        --volume="/media/datasets/rosbags-bishop-hospital:/data" \
         --volume="/media/q200/models_weights:/models" \
         --volume="/${DIR}/../:/workspace" \
+        --volume="/media/v1-data/panda_ai_dataset:/data/panda" \
+        --volume="/media/v1-data/hospital-bishop-data:/data/bishop" \
         -w /workspace \
         "${IMAGE}"
 fi
