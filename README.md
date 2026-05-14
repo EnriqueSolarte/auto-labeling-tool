@@ -1,6 +1,6 @@
-# RGB Autolabeling
+# Auto-labeling Tool
 
-Utilities in this repository prepare RGB-only sequences for autolabeling and YOLO dataset creation.
+Utilities in this repository prepare RGB-only sequences for auto-labeling and YOLO dataset creation.
 
 ## Release Status
 
@@ -29,7 +29,7 @@ Start or attach to the development container:
 ./docker_run.sh
 ```
 
-The run script expects a Linux host with an NVIDIA GPU and X11 display forwarding. It starts an `autolabeling:dev` container named `autolabeling-dev`, mounts this repository at `/workspace`, and uses `/workspace` as the working directory.
+The run script expects a Linux host with an NVIDIA GPU and X11 display forwarding. It starts an `auto-labeling:dev` container named `auto-labeling-dev`, mounts this repository at `/workspace`, and uses `/workspace` as the working directory.
 
 The current hard-coded mounts in `docker/docker_run.sh` are:
 

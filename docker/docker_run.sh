@@ -2,8 +2,8 @@
 # set -euo pipefail
 xhost +local:
 
-IMAGE="autolabeling:dev"
-CONTAINER_NAME="autolabeling-dev"
+IMAGE="auto-labeling:dev"
+CONTAINER_NAME="auto-labeling-dev"
 
 # this directory
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

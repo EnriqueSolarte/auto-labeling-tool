@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y \
     libxcb-xinerama0 \
     libxcb-util1
 
-COPY dockerfile.autolabeling /dockerfile.autolabeling
+COPY dockerfile.auto-labeling /dockerfile.auto-labeling
 COPY requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
 
