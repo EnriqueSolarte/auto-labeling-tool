@@ -162,7 +162,7 @@ def _create_masks(args: argparse.Namespace) -> None:
     cfg = _load_cli_config(args)
     masking = cfg.data["masking"]
     method = str(masking["method"])
-    out_dir = cfg.masks_root / cfg.images_dir.name / cfg.run_id
+    out_dir = cfg.masks_root / cfg.run_id
     print(f"[auto-label-tool] images: {cfg.images_dir}")
     print(f"[auto-label-tool] masks:  {out_dir}")
     print(f"[auto-label-tool] method: {method}")
