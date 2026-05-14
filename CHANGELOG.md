@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.0
+
+- Added Docker Compose configuration for the auto-labeling development container.
+- Added `.dockerignore` to reduce Docker build context size.
+- Updated Docker build and run scripts for the current repository layout.
+- Moved `requirements.txt` to the repository root for Docker build compatibility.
+- Updated the Docker image to install the package into `/workspace`.
+- Documented the Docker Compose workflow in `README.md`.
+
 ## v1.0.0
 
 - Added the `auto-label-tool` CLI.
