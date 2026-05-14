@@ -52,7 +52,7 @@ Run workflows from the repository root with `python3 -m ...`.
 
 ## Pipeline
 
-1. Create mask versions with manual prompts + SAM2 propagation.
+1. Create mask versions with manual prompts
 2. Aggregate multiple mask versions into one `average_mask`.
 3. Create a YOLO dataset from aggregated masks.
 4. Validate or clean annotations interactively.
