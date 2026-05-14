@@ -1,16 +1,16 @@
-# RGB Autolabeling
+# Auto-labeling Tool
 
-Utilities in this repository prepare RGB-only sequences for autolabeling and YOLO dataset creation.
+Utilities in this repository prepare RGB-only image sequences for auto-labeling and YOLO dataset creation.
 
 ## Release Status
 
-Current target: `v0.1.0` internal alpha.
+Current version: `v1.0.0`.
 
-This version is intended for internal teammates running the manual RGB-to-YOLO pipeline inside the provided Docker GPU environment, using SAM2 mounted from the host and datasets mounted under `/data`.
+This version centers on the `auto-label-tool` CLI and a config-driven RGB-to-YOLO workflow.
 
-It supports mask creation, mask aggregation, dataset generation, inspection, and annotation curation. It does not promise portability, full automation, training-quality guarantees, stable APIs, or safe destructive dataset editing.
+It supports mask creation, mask aggregation, dataset generation, inspection, and annotation curation. It does not promise portability, full automation, training-quality guarantees, stable APIs, or risk-free destructive dataset editing.
 
-Before tagging or using this version, read `.agent-workspace/release-checklist.md` and `.agent-workspace/known-issues.md`.
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Docker Setup
 
@@ -29,15 +29,7 @@ Start or attach to the development container:
 ./docker_run.sh
 ```
 
-The run script expects a Linux host with an NVIDIA GPU and X11 display forwarding. It starts an `autolabeling:dev` container named `autolabeling-dev`, mounts this repository at `/workspace`, and uses `/workspace` as the working directory.
-
-The current hard-coded mounts in `docker/docker_run.sh` are:
-
-- `/media/q200/models_weights` mounted at `/models`
-- `/media/v1-data/panda_ai_dataset` mounted at `/data/panda`
-- `/media/v1-data/hospital-bishop-data` mounted at `/data/bishop`
-
-Edit `docker/docker_run.sh` if your model or dataset paths are different.
+The run script expects a Linux host with an NVIDIA GPU and X11 display forwarding. Edit `docker/docker_run.sh` if your model or dataset paths are different.
 
 ## Package Layout
 
@@ -48,153 +40,94 @@ auto_labeling_tool/
   utils/  # shared image, tracking, and segmentation helpers
 ```
 
-Run workflows from the repository root with `python3 -m ...`.
+For the simplified CLI, install the repository in editable mode once inside the
+container:
+
+```bash
+pip install -e .
+```
+
+Check that the command is available:
+
+```bash
+auto-label-tool --help
+```
 
 ## Pipeline
 
-1. Create mask versions with manual prompts + SAM2 propagation.
+0. Create a configuration file
+1. Create mask versions with manual prompts
 2. Aggregate multiple mask versions into one `average_mask`.
 3. Create a YOLO dataset from aggregated masks.
 4. Validate or clean annotations interactively.
-5. Visualize labels and report dataset stats.
+5. Visualize labels, report dataset stats, and reshuffle dataset splits.
 
-## Prerequisites
+```bash
+auto-label-tool create-config -d /workspace/assets/samples -o /workspace/assets/runs
+auto-label-tool create-masks -c /workspace/assets/runs/assets__samples/cfg.yaml
+auto-label-tool aggregate-masks -c /workspace/assets/runs/assets__samples/cfg.yaml
+auto-label-tool create-dataset -c /workspace/assets/runs/assets__samples/cfg.yaml
+auto-label-tool validate -c /workspace/assets/runs/assets__samples/cfg.yaml
+```
 
-- RGB frame directory (`.jpg`, `.png`, etc.)
-- SAM2 checkpoint and config available in your environment
-- OpenCV GUI support for interactive steps
+By default, `create-config` derives a data id from the last two input path
+parts. For example, `/workspace/assets/samples` becomes `assets__samples`, so
+`run.root` and the default config path become `OUTPUT_DIR/assets__samples`.
 
-## Expected Mask Layout
+The default full run executes mask creation, aggregation, and dataset creation:
 
-`auto_labeling_tool.app.create_masks_by_manual_prompts` writes:
+```bash
+auto-label-tool run -c /workspace/assets/runs/assets__samples/cfg.yaml
+```
+
+When a config file is moved, commands check whether `run.root` still matches the directory containing the config. Interactive shells ask whether to update it or cancel; non-interactive runs fail unless `--update-root` is passed. Pipeline steps never proceed with a mismatched config. To fix the config without running va pipeline step:
+
+```bash
+auto-label-tool update-root -c /workspace/assets/runs/assets__samples/cfg.yaml
+```
+
+Pipeline commands also accept `--update-root` to apply the same fix before running.
+
+To enable shell tab completion for the current Bash session:
+
+```bash
+eval "$(register-python-argcomplete auto-label-tool)"
+```
+
+Or install it automatically for future Bash sessions:
+
+```bash
+auto-label-tool install-completion
+```
+
+This command appends the completion hook to `~/.bashrc` inside the environment where `auto-label-tool` is installed.
+
+## Expected Data Layout
 
 ```text
-<output-dir>/
-  <sequence_name>/
-    <timestamp>/
-      <frame_stem>.npy
-      ...
+<Output-dir>/<run.id_data>
+  |-- cfg.yaml
+  |-- datasets
+  |   `-- 20260514_093720
+  `-- masks
+      |-- 20260514_093444
+      |-- 20260514_093522
+      `-- average_mask
 ```
 
-Each `.npy` is a mask stack with shape `[n, H, W]`, with one slice per object.
+## Utility Commands
 
-## 1) Create Masks
+### Visualize Labels
 
-```bash
-python3 -m auto_labeling_tool.app.create_masks_by_manual_prompts \
-  --sequence-dir /data/with_bed/rosbag2_2025_11_28-11_43_17 \
-  --method sam2_prop \
-  --output-dir /data/masks
-```
-
-UI controls:
-
-- Frame selection: `SPACE` next, `ENTER` select, `ESC/q` cancel
-- Prompt selection: left click points, `ENTER/SPACE/ESC` finish
-
-Notes:
-
-- Repeat this step multiple times to generate multiple timestamped mask versions.
-- Supported methods: `sam2_prop`, `sam2_prop_recur`, `sam2_lkt`.
-
-## 2) Aggregate Mask Versions
-
-```bash
-python3 -m auto_labeling_tool.app.aggregate_masks \
-  --masks-dir /data/masks \
-  --thr 0.5 \
-  --debug /data/with_bed
-```
-
-Outputs:
+Use the dataset directory created under `paths.datasets_root`, for example:
 
 ```text
-<masks-dir>/<sequence_name>/average_mask/
-  <frame_stem>.npy
-  <frame_stem>.png
+/workspace/assets/runs/assets__samples/datasets/20260514_093720
 ```
-
-Options:
-
-- `--thr`: threshold on mean mask
-- `--init-idx`: resume from sorted frame index, keeping existing outputs
-- `--debug [RGB_DIR]`: preview aggregated masks with optional RGB overlay
-
-Resume long runs from an index:
-
-```bash
-python3 -m auto_labeling_tool.app.aggregate_masks --masks-dir /data/masks --init-idx 500
-```
-
-## 3) Build YOLO Dataset
-
-```bash
-python3 -m auto_labeling_tool.app.create_training_dataset_from_masks \
-  --masks_dir /data/masks \
-  --images_dir /data/with_bed \
-  --output-root /data/training_data \
-  --class-name bed \
-  --val-ratio 0.2 \
-  --seed 42
-```
-
-Important behavior:
-
-- Only `.npy` masks are used.
-- If any `average_mask` directories exist, only those are used.
-- If none exist under `--masks_dir`, the script stops instead of processing raw versions.
-
-Outputs:
-
-```text
-<output-root>/<timestamp>/
-  data.yaml
-  images/train
-  images/val
-  labels/train
-  labels/val
-```
-
-## 4) Validate and Clean Annotations
-
-Interactive review:
-
-```bash
-python3 -m auto_labeling_tool.app.validate_dataset_annotations \
-  --dataset-root /data/training_data/20260113_065116 \
-  --split train \
-  --int-idx 0
-```
-
-Viewer controls:
-
-- `x`: blacklist current image in `black_list.txt`
-- `a`: remove current image from blacklist
-- `j`: previous frame
-- `l`: next frame
-- `q` or `ESC`: quit
-
-Utility modes:
-
-```bash
-# create empty label files for images missing .txt
-python3 -m auto_labeling_tool.app.validate_dataset_annotations \
-  --dataset-root /data/training_data/20260113_065116 \
-  --split train \
-  --ensure-labels
-
-# delete blacklisted images and matching labels
-python3 -m auto_labeling_tool.app.validate_dataset_annotations \
-  --dataset-root /data/training_data/20260113_065116 \
-  --split train \
-  --prune
-```
-
-## 5) Visualize Labels
 
 ```bash
 python3 -m auto_labeling_tool.app.visualize_dataset \
-  --dataset-root /data/training_data/20260113_065116 \
+  --dataset-root /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
   --split train \
   --fraction 0.1
 ```
@@ -203,27 +136,43 @@ Optional video export:
 
 ```bash
 python3 -m auto_labeling_tool.app.visualize_dataset \
-  --dataset-root /data/training_data/20260113_065116 \
+  --dataset-root /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
   --split train \
   --output-video /tmp/train_vis.mp4 \
   --no-window
 ```
 
-## 6) Dataset Stats
+### Dataset Stats
 
 ```bash
 python3 -m auto_labeling_tool.app.dataset_stats \
-  --dataset-dir /data/training_data/20260113_065116
+  --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720
 ```
 
-Reports per-split counts for images, labels, missing/orphan labels, empty label files, total boxes, and boxes per class.
+Reports per-split counts for images, labels, missing labels, orphan labels,
+empty label files, total boxes, and boxes per class.
 
-## SAM2 Propagation Demos
+### Shuffle Dataset Splits
 
-These lower-level demos are mostly useful for backend development and comparison:
+Use `shuffle_dataset.py` to reshuffle an existing YOLO dataset into new
+`train`, `val`, and optional `test` splits.
+
+Preview the split counts without changing files:
 
 ```bash
-python3 -m auto_labeling_tool.sam2.propagate_sam2 --sequence-dir /workspace/assets/seq_images
-python3 -m auto_labeling_tool.sam2.propagate_sam2_recursive --sequence-dir /workspace/assets/seq_images
-python3 -m auto_labeling_tool.sam2.propagate_sam2_lkt --sequence-dir /workspace/assets/seq_images
+python3 -m auto_labeling_tool.app.shuffle_dataset \
+  --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
+  --ratios 0.7 0.2 0.1 \
+  --dry-run
 ```
+
+Apply the reshuffle:
+
+```bash
+python3 -m auto_labeling_tool.app.shuffle_dataset \
+  --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
+  --ratios 0.7 0.2 0.1 \
+  --seed 42
+```
+
+The command creates temporary backups while moving files and removes those backups after a successful reshuffle.

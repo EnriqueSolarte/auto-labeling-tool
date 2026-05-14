@@ -1,2 +1,2 @@
 #!/bin/bash
-docker build -f dockerfile.autolabeling -t autolabeling:dev .
+docker build -f dockerfile.auto-labeling -t auto-labeling:dev .

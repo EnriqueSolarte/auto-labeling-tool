@@ -1,0 +1,64 @@
+FROM nvcr.io/nvidia/cuda-dl-base:24.09-cuda12.6-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    libjpeg-dev \
+    libpng-dev \
+    libglfw3-dev \
+    libglm-dev \
+    libx11-dev \
+    libomp-dev \
+    libegl1-mesa-dev \
+    wget \
+    zip \
+    fontconfig \
+    byobu \
+    unzip && \    
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python 3.11 and pip
+RUN apt-get update && apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y python3.11 python3.11-distutils python3.11-dev && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/local/bin/pip /usr/bin/pip
+
+# To install Lib to use vispy
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends --no-install-suggests \
+    libboost-program-options1.74.0 \
+    libc6 \
+    libfreeimage3 \
+    libgcc-s1 \
+    libgl1 \
+    libglew2.2 \
+    libgoogle-glog0v5 \
+    libqt5core5a \
+    libqt5gui5 \
+    libqt5widgets5 \
+    libcurl4 
+
+RUN apt-get update && apt-get install -y \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcb-glx0 \
+    libxcb-keysyms1 \
+    libxcb-image0 \
+    libxcb-shm0 \
+    libxcb-icccm4 \
+    libxcb-sync1 \
+    libxcb-xfixes0 \
+    libxcb-shape0 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-xinerama0 \
+    libxcb-util1
+
+COPY dockerfile.auto-labeling /dockerfile.auto-labeling
+COPY requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt
+
+CMD ["bash"]

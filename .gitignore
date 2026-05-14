@@ -56,7 +56,9 @@ venv.bak/
 cython_debug/
 
 # Project-specific generated data
+.agent-workspace/
 /data/
 /assets/
-masks/
-train_data/
+*/masks/
+*/datasets/
+*/train_data/
