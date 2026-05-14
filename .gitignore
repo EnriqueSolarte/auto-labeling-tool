@@ -25,6 +25,8 @@ coverage.xml
 
 # Virtual environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -55,5 +57,6 @@ cython_debug/
 
 # Project-specific generated data
 /data/
+/assets/
 masks/
 train_data/
