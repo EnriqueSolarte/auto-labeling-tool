@@ -57,5 +57,6 @@ cython_debug/
 
 # Project-specific generated data
 /data/
+/assets/
 masks/
 train_data/
