@@ -4,7 +4,7 @@ Utilities in this repository prepare RGB-only sequences for auto-labeling and YO
 
 ## Release Status
 
-Current target: `v0.1.0` internal alpha.
+Current target: `v1.0.0`.
 
 This version is intended for internal teammates running the manual RGB-to-YOLO pipeline inside the provided Docker GPU environment, using SAM2 mounted from the host and datasets mounted under `/data`.
 
@@ -49,6 +49,61 @@ auto_labeling_tool/
 ```
 
 Run workflows from the repository root with `python3 -m ...`.
+
+For the simplified CLI, install the repository in editable mode once inside the
+container:
+
+```bash
+pip install -e .
+```
+
+Then create a run config and drive the workflow with one command family:
+
+```bash
+auto-label-tool create-config -d /data/panda/panda-v3-data/panda-v3-2026-05-12/_0/cam_0 -o /data/panda/panda-v3-data/panda-v3-2026-05-12/data
+auto-label-tool create-masks -c /data/panda/panda-v3-data/panda-v3-2026-05-12/data/_0__cam_0/cfg.yaml
+auto-label-tool aggregate-masks -c /data/panda/panda-v3-data/panda-v3-2026-05-12/data/_0__cam_0/cfg.yaml
+auto-label-tool create-dataset -c /data/panda/panda-v3-data/panda-v3-2026-05-12/data/_0__cam_0/cfg.yaml
+auto-label-tool validate -c /data/panda/panda-v3-data/panda-v3-2026-05-12/data/_0__cam_0/cfg.yaml
+```
+
+By default, `create-config` derives a data id from the last two input path
+parts. For example, `_0/cam_0` becomes `_0__cam_0`, so `run.root` and the
+default config path become `OUTPUT_DIR/_0__cam_0`.
+
+The default full run executes mask creation, aggregation, and dataset creation:
+
+```bash
+auto-label-tool run -c /data/panda/panda-v3-data/panda-v3-2026-05-12/data/_0__cam_0/cfg.yaml
+```
+
+When a config file is moved, commands check whether `run.root` still matches the
+directory containing the config. Interactive shells ask whether to update it or
+cancel; non-interactive runs fail unless `--update-root` is passed. A pipeline
+step never proceeds with a mismatched config. To fix the config without running
+a pipeline step:
+
+```bash
+auto-label-tool update-root -c /data/panda/panda-v3-data/panda-v3-2026-05-12/data/_0__cam_0/cfg.yaml
+```
+
+Pipeline commands also accept `--update-root` to apply the same fix before
+running.
+
+To enable shell tab completion for the current Bash session:
+
+```bash
+eval "$(register-python-argcomplete auto-label-tool)"
+```
+
+Or install it automatically for future Bash sessions:
+
+```bash
+auto-label-tool install-completion
+```
+
+This appends the completion hook to `~/.bashrc` inside the environment where
+`auto-label-tool` is installed.
 
 ## Pipeline
 
