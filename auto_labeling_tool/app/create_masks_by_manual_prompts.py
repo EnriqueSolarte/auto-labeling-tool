@@ -10,7 +10,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from propagate_sam2 import (
+from auto_labeling_tool.sam2.propagate_sam2 import (
     DEFAULT_SAM2_CHECKPOINT as VID_DEFAULT_CKPT,
     DEFAULT_SAM2_CONFIG as VID_DEFAULT_CFG,
     get_initial_xy_points as get_points_video,
@@ -19,8 +19,10 @@ from propagate_sam2 import (
     read_frame,
     tensor_mask_to_numpy,
 )
-from propagate_sam2_recursive import sample_points_from_mask as sample_points_recursive
-from propagate_sam2_lkt import (
+from auto_labeling_tool.sam2.propagate_sam2_recursive import (
+    sample_points_from_mask as sample_points_recursive,
+)
+from auto_labeling_tool.sam2.propagate_sam2_lkt import (
     DEFAULT_SAM2_CHECKPOINT as LKT_DEFAULT_CKPT,
     DEFAULT_SAM2_CONFIG as LKT_DEFAULT_CFG,
     compute_seg_mask,
@@ -28,7 +30,7 @@ from propagate_sam2_lkt import (
     get_sam_model,
     track_xy,
 )
-from utils.lk_tracker import load_image_sequence
+from auto_labeling_tool.utils.lk_tracker import load_image_sequence
 
 
 def _save_mask(mask: np.ndarray, out_path: Path) -> bool:
@@ -597,7 +599,7 @@ def run_sam2_lkt(sequence_dir: Path, out_dir: Path, init_idx: int = 0) -> None:
         cv2.destroyAllWindows()
         return
 
-    from utils.sampling_mask import jitter_mask_sampling as mask_sampling
+    from auto_labeling_tool.utils.sampling_mask import jitter_mask_sampling as mask_sampling
 
     points = mask_sampling(mask, points, 10)
     prev_frame = frames[annotation_idx]
@@ -632,7 +634,7 @@ def parse_args() -> argparse.Namespace:
             "Run SAM2 over an image sequence and save binary mask stacks (.npy, shape [n, H, W]) to "
             "<output-dir>/{sequence_dir.name}/{timestamp}.\n"
             "Example:\n"
-            "  python create_masks_by_manual_prompts.py \\\n"
+            "  python -m auto_labeling_tool.app.create_masks_by_manual_prompts \\\n"
             "      --sequence-dir /workspace/assets/seq_images \\\n"
             "      --method sam2_prop \\\n"
             "      --output-dir /data/masks"

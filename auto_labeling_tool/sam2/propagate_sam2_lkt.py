@@ -3,9 +3,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from utils.lk_tracker import loop_iter_image_sequence, track_between_frames
-from utils import get_segmentation, load_sam_model, overlay_mask
-from utils.sampling_mask import jitter_mask_sampling as mask_sampling
+from auto_labeling_tool.utils.lk_tracker import loop_iter_image_sequence, track_between_frames
+from auto_labeling_tool.utils import get_segmentation, load_sam_model, overlay_mask
+from auto_labeling_tool.utils.sampling_mask import jitter_mask_sampling as mask_sampling
 
 SAM2_DEFAULT_DIR = Path("/models/sam2")
 DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_hiera_l.yaml"

@@ -1,29 +1,54 @@
+Date: 2026-05-14
+Project version: v0.1.0
+Description: Simple current workflow for creating masks and YOLO datasets.
 
-This is a rough and simple description of how to use the current implementation. 
+# How to Use the Current Pipeline
 
-1. Create mask by manual prompting.
-```
+This is the practical workflow for the current implementation.
+
+## 1. Create masks with manual prompts
+
+```bash
 python3 create_masks_by_manual_prompts.py \
---sequence-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/cam_0/ \
---output-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/
+  --sequence-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/cam_0/ \
+  --output-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/
 ```
-Then an image will appear. Then the user is prompt to select the initial frame. After select the initial frame the user will be prompt to define some input prompt point that are within the object in the image. Then the system will use SAM3 to propagate mask sequentially. The mask are stored at --output-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/cam_0/<date-format-data>
 
+An image window will open.
+
+1. Select the initial frame.
+2. Add prompt points inside the object.
+3. The system propagates the mask through the sequence.
+4. Masks are saved under:
+
+```text
+/data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/cam_0/<timestamp>
 ```
+
+Example output:
+
+```text
 masks/
 `-- cam_0
     |-- 20260514_054016
     `-- 20260514_054309
 ```
 
-2. Mask Aggregation
-The main point of the auto-labeling is to easily collect as many masks as possible from multiple iterations in point (1). To aggregate all of this mask, we use the next command: 
-```
+Run this step multiple times if you want several mask versions for the same sequence.
+
+## 2. Aggregate mask versions
+
+The goal is to combine mask versions from multiple manual runs into one averaged mask set.
+
+```bash
 python3 aggregate_masks.py \
---masks-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/cam_0/ --debug /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/cam_0/
+  --masks-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/cam_0/ \
+  --debug /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/cam_0/
 ```
-all mask defined for masks/cam_0/ will be aggregate
-```
+
+All mask versions under `masks/cam_0/` are aggregated into `average_mask`.
+
+```text
 masks/
 `-- cam_0
     |-- 20260514_054016
@@ -31,16 +56,19 @@ masks/
     `-- average_mask
 ```
 
-3. Create a dataset formal Ultralitcs YOLO 
-```
+## 3. Create an Ultralytics YOLO dataset
+
+```bash
 python3 create_training_dataset_from_masks.py \
---masks_dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/cam_0/average_mask/ \
---images_dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/cam_0/ \
---output-root /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/labels/ \
---class-name bamboo
+  --masks_dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/masks/cam_0/average_mask/ \
+  --images_dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/cam_0/ \
+  --output-root /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/labels/ \
+  --class-name bamboo
 ```
-The output looks like 
-```
+
+Example output:
+
+```text
 labels/
 `-- 20260514_055605
     |-- data.yaml
@@ -48,12 +76,17 @@ labels/
     `-- labels
 ```
 
-4. Check the dataset stats
-```
- python3 dataset_stats.py --dataset-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/labels/20260514_055605/ 
+## 4. Check dataset stats
+
+```bash
+python3 dataset_stats.py \
+  --dataset-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/labels/20260514_055605/
 ```
 
-5. To reshuffle a dataset
-```
-python3 manipulate_dataset.py --dataset-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/labels/20260514_055605/ --ratios 0.5 0.25 
+## 5. Reshuffle a dataset
+
+```bash
+python3 manipulate_dataset.py \
+  --dataset-dir /data/panda/panda-v3-data/panda-v3-2026-05-12/_5/labels/20260514_055605/ \
+  --ratios 0.5 0.25
 ```

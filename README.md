@@ -14,124 +14,186 @@ Before tagging or using this version, read `.agent-workspace/release-checklist.m
 
 ## Docker Setup
 
-The supported `v0.1.0` workflow runs inside Docker on a Linux host with an NVIDIA GPU and X11 display forwarding.
+The current repository uses the helper scripts in `docker/`; there is no Docker Compose file in this repo.
+
+Build the image from the `docker/` directory:
 
 ```bash
-cp .env.example .env
-# edit MODEL_ROOT and DATA_ROOT in .env
-xhost +local:docker
-docker compose build autolabeling
-docker compose run --rm autolabeling
+cd docker
+./docker_build.sh
 ```
 
-The container expects:
-
-- SAM2 files at `/models/sam2`
-- mounted datasets under `/data`
-- this repository at `/workspace`
-
-Legacy helpers are still available:
+Start or attach to the development container:
 
 ```bash
-./docker/docker_build.sh
-./docker/docker_run.sh
+./docker_run.sh
 ```
 
-## Pipeline (Current)
+The run script expects a Linux host with an NVIDIA GPU and X11 display forwarding. It starts an `autolabeling:dev` container named `autolabeling-dev`, mounts this repository at `/workspace`, and uses `/workspace` as the working directory.
+
+The current hard-coded mounts in `docker/docker_run.sh` are:
+
+- `/media/q200/models_weights` mounted at `/models`
+- `/media/v1-data/panda_ai_dataset` mounted at `/data/panda`
+- `/media/v1-data/hospital-bishop-data` mounted at `/data/bishop`
+
+Edit `docker/docker_run.sh` if your model or dataset paths are different.
+
+## Package Layout
+
+```text
+auto_labeling_tool/
+  app/    # command-line workflows
+  sam2/   # SAM2 propagation backends
+  utils/  # shared image, tracking, and segmentation helpers
+```
+
+Run workflows from the repository root with `python3 -m ...`.
+
+## Pipeline
 
 1. Create mask versions with manual prompts + SAM2 propagation.
 2. Aggregate multiple mask versions into one `average_mask`.
 3. Create a YOLO dataset from aggregated masks.
-4. Validate/clean annotations interactively.
-5. Visualize and report dataset stats.
+4. Validate or clean annotations interactively.
+5. Visualize labels and report dataset stats.
 
-For a concise walkthrough, see `autolabeling.md`.
+## Prerequisites
+
+- RGB frame directory (`.jpg`, `.png`, etc.)
+- SAM2 checkpoint and config available in your environment
+- OpenCV GUI support for interactive steps
+
+## Expected Mask Layout
+
+`auto_labeling_tool.app.create_masks_by_manual_prompts` writes:
+
+```text
+<output-dir>/
+  <sequence_name>/
+    <timestamp>/
+      <frame_stem>.npy
+      ...
+```
+
+Each `.npy` is a mask stack with shape `[n, H, W]`, with one slice per object.
 
 ## 1) Create Masks
 
 ```bash
-python3 create_masks_by_manual_prompts.py \
+python3 -m auto_labeling_tool.app.create_masks_by_manual_prompts \
   --sequence-dir /data/with_bed/rosbag2_2025_11_28-11_43_17 \
   --method sam2_prop \
   --output-dir /data/masks
 ```
 
-- Output: `.npy` mask stacks per frame under `/data/masks/<episode>/<timestamp>/`.
-- Methods:
-  - `sam2_prop`
-  - `sam2_prop_recur`
-  - `sam2_lkt`
+UI controls:
+
+- Frame selection: `SPACE` next, `ENTER` select, `ESC/q` cancel
+- Prompt selection: left click points, `ENTER/SPACE/ESC` finish
+
+Notes:
+
+- Repeat this step multiple times to generate multiple timestamped mask versions.
+- Supported methods: `sam2_prop`, `sam2_prop_recur`, `sam2_lkt`.
 
 ## 2) Aggregate Mask Versions
 
 ```bash
-python3 aggregate_masks.py \
+python3 -m auto_labeling_tool.app.aggregate_masks \
   --masks-dir /data/masks \
   --thr 0.5 \
   --debug /data/with_bed
 ```
 
-- Aggregates all versions per frame using mean + threshold.
-- Writes outputs to `/data/masks/<episode>/average_mask/`:
-  - `<frame>.npy` (stack `[n, H, W]`)
-  - `<frame>.png` (union visualization)
-- Resume long runs from an index:
+Outputs:
+
+```text
+<masks-dir>/<sequence_name>/average_mask/
+  <frame_stem>.npy
+  <frame_stem>.png
+```
+
+Options:
+
+- `--thr`: threshold on mean mask
+- `--init-idx`: resume from sorted frame index, keeping existing outputs
+- `--debug [RGB_DIR]`: preview aggregated masks with optional RGB overlay
+
+Resume long runs from an index:
 
 ```bash
-python3 aggregate_masks.py --masks-dir /data/masks --init-idx 500
+python3 -m auto_labeling_tool.app.aggregate_masks --masks-dir /data/masks --init-idx 500
 ```
 
 ## 3) Build YOLO Dataset
 
 ```bash
-python3 create_training_dataset_from_masks.py \
+python3 -m auto_labeling_tool.app.create_training_dataset_from_masks \
   --masks_dir /data/masks \
   --images_dir /data/with_bed \
   --output-root /data/training_data \
+  --class-name bed \
   --val-ratio 0.2 \
-  --seed 42 \
-  --class-name bed
+  --seed 42
 ```
 
-- Uses `.npy` masks (and prefers `average_mask` paths when present).
-- Creates timestamped dataset root:
-  - `images/train`, `images/val`
-  - `labels/train`, `labels/val`
-  - `data.yaml`
+Important behavior:
 
-## 4) Validate / Clean Annotations
+- Only `.npy` masks are used.
+- If any `average_mask` directories exist, only those are used.
+- If none exist under `--masks_dir`, the script stops instead of processing raw versions.
 
-Interactive validator:
+Outputs:
+
+```text
+<output-root>/<timestamp>/
+  data.yaml
+  images/train
+  images/val
+  labels/train
+  labels/val
+```
+
+## 4) Validate and Clean Annotations
+
+Interactive review:
 
 ```bash
-python3 validate_dataset_annotations.py \
+python3 -m auto_labeling_tool.app.validate_dataset_annotations \
   --dataset-root /data/training_data/20260113_065116 \
   --split train \
   --int-idx 0
 ```
 
-Key controls in viewer:
+Viewer controls:
 
-- `x`: add current image to `black_list.txt`
+- `x`: blacklist current image in `black_list.txt`
 - `a`: remove current image from blacklist
 - `j`: previous frame
 - `l`: next frame
-- `q`/`ESC`: quit
+- `q` or `ESC`: quit
 
 Utility modes:
 
 ```bash
 # create empty label files for images missing .txt
-python3 validate_dataset_annotations.py --dataset-root /data/training_data/20260113_065116 --split train --ensure-labels
+python3 -m auto_labeling_tool.app.validate_dataset_annotations \
+  --dataset-root /data/training_data/20260113_065116 \
+  --split train \
+  --ensure-labels
 
-# prune blacklisted images and matching labels
-python3 validate_dataset_annotations.py --dataset-root /data/training_data/20260113_065116 --split train --prune
+# delete blacklisted images and matching labels
+python3 -m auto_labeling_tool.app.validate_dataset_annotations \
+  --dataset-root /data/training_data/20260113_065116 \
+  --split train \
+  --prune
 ```
 
-## 5) Visualize Dataset
+## 5) Visualize Labels
 
 ```bash
-python3 visualize_dataset.py \
+python3 -m auto_labeling_tool.app.visualize_dataset \
   --dataset-root /data/training_data/20260113_065116 \
   --split train \
   --fraction 0.1
@@ -140,45 +202,28 @@ python3 visualize_dataset.py \
 Optional video export:
 
 ```bash
-python3 visualize_dataset.py \
+python3 -m auto_labeling_tool.app.visualize_dataset \
   --dataset-root /data/training_data/20260113_065116 \
   --split train \
   --output-video /tmp/train_vis.mp4 \
   --no-window
 ```
 
-## 6) Dataset Statistics
+## 6) Dataset Stats
 
 ```bash
-python3 dataset_stats.py --dataset-dir /data/training_data/20260113_065116
+python3 -m auto_labeling_tool.app.dataset_stats \
+  --dataset-dir /data/training_data/20260113_065116
 ```
 
-- Reports split-level counts:
-  - images, labels, missing labels, orphan labels
-  - empty label files
-  - total boxes and boxes per class
+Reports per-split counts for images, labels, missing/orphan labels, empty label files, total boxes, and boxes per class.
 
-## Additional Demos
+## SAM2 Propagation Demos
 
-### LK tracker demo
+These lower-level demos are mostly useful for backend development and comparison:
 
 ```bash
-python3 -m examples.lk_tracker_example --sequence-dir /workspace/assets/seq_images
-```
-
-### SAM2 quick image segmentation demo
-
-```bash
-python3 -m examples.sam_example \
-  --points "320,200 360,230 300,260" \
-  --checkpoint /models/sam2/sam2.1_hiera_tiny.pt \
-  --model-config /models/sam2/sam2.1_hiera_t.yaml
-```
-
-### SAM2 propagation demos
-
-```bash
-python3 propagate_sam2.py --sequence-dir /workspace/assets/seq_images
-python3 propagate_sam2_recursive.py --sequence-dir /workspace/assets/seq_images
-python3 propagate_sam2_lkt.py --sequence-dir /workspace/assets/seq_images
+python3 -m auto_labeling_tool.sam2.propagate_sam2 --sequence-dir /workspace/assets/seq_images
+python3 -m auto_labeling_tool.sam2.propagate_sam2_recursive --sequence-dir /workspace/assets/seq_images
+python3 -m auto_labeling_tool.sam2.propagate_sam2_lkt --sequence-dir /workspace/assets/seq_images
 ```

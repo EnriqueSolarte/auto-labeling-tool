@@ -173,7 +173,7 @@ def parse_args() -> argparse.Namespace:
             "Validate YOLO annotations in sequence order.\n"
             "Press 'd' to add the current image name to black_list.txt.\n"
             "Example:\n"
-            "  python validate_dataset_annotations.py \\\n"
+            "  python -m auto_labeling_tool.app.validate_dataset_annotations \\\n"
             "      --dataset-root /data/training_data/20251204_072806 \\\n"
             "      --split train"
         )

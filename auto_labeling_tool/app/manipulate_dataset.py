@@ -30,8 +30,8 @@ def _parse_args() -> argparse.Namespace:
         description=(
             "Redefine YOLO dataset splits by reassigning files under images/ and labels/.\n"
             "Examples:\n"
-            "  python manipulate_dataset.py --dataset-dir /data/training_data/my_dataset --ratios 0.7 0.2 0.1\n"
-            "  python manipulate_dataset.py --dataset-dir /data/training_data/my_dataset --ratios 0.7 0.2"
+            "  python -m auto_labeling_tool.app.manipulate_dataset --dataset-dir /data/training_data/my_dataset --ratios 0.7 0.2 0.1\n"
+            "  python -m auto_labeling_tool.app.manipulate_dataset --dataset-dir /data/training_data/my_dataset --ratios 0.7 0.2"
         )
     )
     parser.add_argument(

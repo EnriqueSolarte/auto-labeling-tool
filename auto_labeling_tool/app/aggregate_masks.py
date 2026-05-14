@@ -289,7 +289,7 @@ def _parse_args() -> argparse.Namespace:
             "Expects a directory structure like /data/masks/<episode>/<version>/frame.png "
             "and writes aggregated masks into /data/masks/<episode>/average_mask/.\n"
             "Example:\n"
-            "  python aggregate_masks.py --masks-dir /data/masks"
+            "  python -m auto_labeling_tool.app.aggregate_masks --masks-dir /data/masks"
         )
     )
     parser.add_argument(

@@ -264,7 +264,7 @@ def parse_args() -> argparse.Namespace:
             "Create a YOLO training dataset from mask annotations and RGB images.\n"
             "Masks (binary images or .npy stacks shaped [n, H, W]) may reside under a root like /data/masks or any nested subdirectory.\n"
             "Example:\n"
-            "  python create_training_dataset_from_masks.py \\\n"
+            "  python -m auto_labeling_tool.app.create_training_dataset_from_masks \\\n"
             "      --masks_dir /data/masks \\\n"
             "      --images_dir /data/with_bed \\\n"
             "      --output-root /data/training_data"

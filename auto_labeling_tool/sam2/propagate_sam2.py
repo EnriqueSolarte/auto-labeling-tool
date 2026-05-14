@@ -17,9 +17,9 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf, open_dict
 
-from utils import overlay_mask
-from utils.segmentation import _apply_postprocessing_overrides
-from utils.sampling_mask import uniform_mask_sampling as mask_sampling
+from auto_labeling_tool.utils import overlay_mask
+from auto_labeling_tool.utils.segmentation import _apply_postprocessing_overrides
+from auto_labeling_tool.utils.sampling_mask import uniform_mask_sampling as mask_sampling
 
 SAM2_DEFAULT_DIR = Path("/models/sam2")
 DEFAULT_SAM2_CONFIG = SAM2_DEFAULT_DIR / "configs/sam2.1/sam2.1_hiera_l.yaml"
@@ -29,9 +29,9 @@ DEFAULT_SAM2_CHECKPOINT = SAM2_DEFAULT_DIR / "sam2.1_hiera_large.pt"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Track a SAM 2 mask across frames with recursive prompt resampling.\n"
+            "Track a SAM 2 mask across frames.\n"
             "Example:\n"
-            "  python propagate_sam2_recursive.py \\\n"
+            "  python -m auto_labeling_tool.sam2.propagate_sam2 \\\n"
             "      --sequence-dir /workspace/assets/seq_images \\\n"
             "      --checkpoint /models/sam2/sam2.1_hiera_large.pt"
         )
@@ -155,7 +155,7 @@ def get_initial_xy_points(image: np.ndarray) -> List[tuple[float, float]]:
     cv2.namedWindow(window)
     cv2.setMouseCallback(window, on_mouse)
     cv2.imshow(window, img_display)
-
+    print(f"[get_initial_xy_points] Waiting for user to select initial points...")
     while True:
         key = cv2.waitKey(20) & 0xFF
         if key in (13, 27, 32):  # ENTER, ESC, SPACE
@@ -259,8 +259,8 @@ def main() -> None:
     print(f"Annotating frame {annotation_idx}")
 
     anno_frame = read_frame(frame_paths[annotation_idx])
-    current_points = get_initial_xy_points(anno_frame)
-    if not current_points:
+    initial_points = get_initial_xy_points(anno_frame)
+    if not initial_points:
         print("No points selected; exiting.")
         return
 
@@ -277,7 +277,7 @@ def main() -> None:
         async_loading_frames=args.async_loading,
     )
 
-    points = np.asarray(current_points, dtype=np.float32)
+    points = np.asarray(initial_points, dtype=np.float32)
     labels = np.ones(points.shape[0], dtype=np.int32)
 
     frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
@@ -290,6 +290,40 @@ def main() -> None:
 
     display_window = "SAM2 Video Tracking"
     print("Initial mask computed; starting propagation...")
+    try:
+        idx = obj_ids.index(args.object_id)
+        overlay = render_overlay(read_frame(frame_paths[frame_idx]), masks[idx])
+        cv2.imshow(display_window, overlay)
+        cv2.waitKey(1)
+        if args.samples_per_mask > 0:
+            sampled_points = sample_points_from_mask(
+                masks[idx],
+                num_samples=args.samples_per_mask,
+            )
+            if sampled_points:
+                print(
+                    f"Resampled {len(sampled_points)} prompt points from frame {frame_idx}."
+                )
+                points = np.asarray(sampled_points, dtype=np.float32)
+                labels = np.ones(points.shape[0], dtype=np.int32)
+                frame_idx, obj_ids, masks = predictor.add_new_points_or_box(
+                    inference_state=inference_state,
+                    frame_idx=annotation_idx,
+                    obj_id=args.object_id,
+                    points=points,
+                    labels=labels,
+                    clear_old_points=True,
+                )
+                initial_points = sampled_points
+                idx = obj_ids.index(args.object_id)
+                overlay = render_overlay(read_frame(frame_paths[frame_idx]), masks[idx])
+                cv2.imshow(display_window, overlay)
+                cv2.waitKey(1)
+            else:
+                print("Mask sampling returned no points; using original clicks.")
+    except ValueError:
+        idx = None
+
     for out_idx, obj_ids, mask_scores in predictor.propagate_in_video(
         inference_state,
         start_frame_idx=annotation_idx,
@@ -300,35 +334,6 @@ def main() -> None:
         obj_pos = obj_ids.index(args.object_id)
         frame = read_frame(frame_paths[out_idx])
         overlay = render_overlay(frame, mask_scores[obj_pos])
-        if args.samples_per_mask > 0:
-            sampled_points = sample_points_from_mask(
-                mask_scores[obj_pos],
-                num_samples=args.samples_per_mask,
-            )
-            if sampled_points:
-                current_points = sampled_points
-                points = np.asarray(sampled_points, dtype=np.float32)
-                labels = np.ones(points.shape[0], dtype=np.int32)
-                predictor.add_new_points_or_box(
-                    inference_state=inference_state,
-                    frame_idx=out_idx,
-                    obj_id=args.object_id,
-                    points=points,
-                    labels=labels,
-                    clear_old_points=True,
-                )
-                predictor.propagate_in_video_preflight(inference_state)
-            else:
-                print(f"No new points sampled on frame {out_idx}; keeping previous prompts.")
-        if current_points:
-            for x, y in current_points:
-                cv2.circle(
-                    overlay,
-                    (int(round(x)), int(round(y))),
-                    3,
-                    (0, 255, 0),
-                    -1,
-                )
         cv2.putText(
             overlay,
             f"Frame {out_idx+1}/{len(frame_paths)}",
