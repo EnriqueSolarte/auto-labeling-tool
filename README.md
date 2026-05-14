@@ -1,14 +1,14 @@
 # Auto-labeling Tool
 
-Utilities in this repository prepare RGB-only sequences for auto-labeling and YOLO dataset creation.
+Utilities in this repository prepare RGB-only image sequences for auto-labeling and YOLO dataset creation.
 
 ## Release Status
 
 Current version: `v1.0.0`.
 
-This version is centered on the `auto-label-tool` CLI and a config-driven RGB-to-YOLO workflow.
+This version centers on the `auto-label-tool` CLI and a config-driven RGB-to-YOLO workflow.
 
-It supports mask creation, mask aggregation, dataset generation, inspection, and annotation curation. It does not promise portability, full automation, training-quality guarantees, stable APIs, or safe destructive dataset editing.
+It supports mask creation, mask aggregation, dataset generation, inspection, and annotation curation. It does not promise portability, full automation, training-quality guarantees, stable APIs, or risk-free destructive dataset editing.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
@@ -47,12 +47,14 @@ container:
 pip install -e .
 ```
 
-Check the command is available:
+Check that the command is available:
 
 ```bash
 auto-label-tool --help
 ```
+
 ## Pipeline
+
 0. Create a configuration file
 1. Create mask versions with manual prompts
 2. Aggregate multiple mask versions into one `average_mask`.
@@ -69,8 +71,8 @@ auto-label-tool validate -c /workspace/assets/runs/assets__samples/cfg.yaml
 ```
 
 By default, `create-config` derives a data id from the last two input path
-parts. For example, `assets/samples` becomes `assets__samples`, so `run.root`
-and the default config path become `OUTPUT_DIR/assets__samples`.
+parts. For example, `/workspace/assets/samples` becomes `assets__samples`, so
+`run.root` and the default config path become `OUTPUT_DIR/assets__samples`.
 
 The default full run executes mask creation, aggregation, and dataset creation:
 
@@ -78,18 +80,13 @@ The default full run executes mask creation, aggregation, and dataset creation:
 auto-label-tool run -c /workspace/assets/runs/assets__samples/cfg.yaml
 ```
 
-When a config file is moved, commands check whether `run.root` still matches the
-directory containing the config. Interactive shells ask whether to update it or
-cancel; non-interactive runs fail unless `--update-root` is passed. A pipeline
-step never proceeds with a mismatched config. To fix the config without running
-a pipeline step:
+When a config file is moved, commands check whether `run.root` still matches the directory containing the config. Interactive shells ask whether to update it or cancel; non-interactive runs fail unless `--update-root` is passed. Pipeline steps never proceed with a mismatched config. To fix the config without running va pipeline step:
 
 ```bash
 auto-label-tool update-root -c /workspace/assets/runs/assets__samples/cfg.yaml
 ```
 
-Pipeline commands also accept `--update-root` to apply the same fix before
-running.
+Pipeline commands also accept `--update-root` to apply the same fix before running.
 
 To enable shell tab completion for the current Bash session:
 
@@ -103,27 +100,24 @@ Or install it automatically for future Bash sessions:
 auto-label-tool install-completion
 ```
 
-This appends the completion hook to `~/.bashrc` inside the environment where
-`auto-label-tool` is installed.
+This command appends the completion hook to `~/.bashrc` inside the environment where `auto-label-tool` is installed.
 
-
-
-## Expected Mask Layout
+## Expected Data Layout
 
 ```text
-<output-dir>/
-  masks/
-    <timestamp>/
-      <frame_stem>.npy
-      ...
+<Output-dir>/<run.id_data>
+  |-- cfg.yaml
+  |-- datasets
+  |   `-- 20260514_093720
+  `-- masks
+      |-- 20260514_093444
+      |-- 20260514_093522
+      `-- average_mask
 ```
 
-Each `.npy` is a mask stack with shape `[n, H, W]`, with one slice per object.
+## Utility Commands
 
-
-Utility modes:
-
-## 5) Visualize Labels
+### Visualize Labels
 
 Use the dataset directory created under `paths.datasets_root`, for example:
 
@@ -148,16 +142,17 @@ python3 -m auto_labeling_tool.app.visualize_dataset \
   --no-window
 ```
 
-## 6) Dataset Stats
+### Dataset Stats
 
 ```bash
 python3 -m auto_labeling_tool.app.dataset_stats \
   --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720
 ```
 
-Reports per-split counts for images, labels, missing/orphan labels, empty label files, total boxes, and boxes per class.
+Reports per-split counts for images, labels, missing labels, orphan labels,
+empty label files, total boxes, and boxes per class.
 
-## 7) Shuffle Dataset Splits
+### Shuffle Dataset Splits
 
 Use `shuffle_dataset.py` to reshuffle an existing YOLO dataset into new
 `train`, `val`, and optional `test` splits.
@@ -180,6 +175,4 @@ python3 -m auto_labeling_tool.app.shuffle_dataset \
   --seed 42
 ```
 
-The command creates temporary backups while moving files and removes those
-backups after a successful reshuffle.
-
+The command creates temporary backups while moving files and removes those backups after a successful reshuffle.
