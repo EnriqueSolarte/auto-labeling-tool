@@ -69,6 +69,7 @@ def default_config(images_dir: Path, output_dir: Path) -> dict[str, Any]:
             "class_name": "bed",
             "label_format": "bbox",
             "val_ratio": 0.2,
+            "sample_ratio": None,
             "seed": 42,
         },
     }

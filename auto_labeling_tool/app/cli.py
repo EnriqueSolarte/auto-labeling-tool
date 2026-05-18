@@ -216,6 +216,7 @@ def _create_dataset(args: argparse.Namespace) -> None:
         _link_images,
         _log,
         _split_train_val,
+        _subsample_samples,
         _write_data_yaml,
         _write_labels,
     )
@@ -242,9 +243,17 @@ def _create_dataset(args: argparse.Namespace) -> None:
 
     val_ratio = float(dataset.get("val_ratio", 0.2))
     seed = int(dataset.get("seed", 42))
+    sample_ratio = getattr(args, "sample_ratio", None)
+    if sample_ratio is None:
+        sample_ratio = dataset.get("sample_ratio")
     label_format = args.label_format or str(dataset.get("label_format", "bbox"))
     if label_format not in LABEL_FORMAT_CHOICES:
         raise ValueError(f"Unsupported dataset.label_format: {label_format}")
+    samples = _subsample_samples(samples, sample_ratio=sample_ratio, seed=seed)
+    _log(
+        "Selected %d raw samples for splitting (sample_ratio=%s, seed=%d)"
+        % (len(samples), sample_ratio, seed)
+    )
     train_samples, val_samples = _split_train_val(samples, val_ratio=val_ratio, seed=seed)
     _log(
         "Performed train/val split: %d train, %d val (val_ratio=%.2f, seed=%d)"
@@ -480,6 +489,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override dataset.label_format for this run. Default comes from config.",
     )
+    create_dataset.add_argument(
+        "--sample-ratio",
+        type=float,
+        default=None,
+        help="Override dataset.sample_ratio for this run. Default comes from config.",
+    )
     create_dataset.set_defaults(func=_create_dataset)
 
     validate = sub.add_parser("validate", help="Review generated YOLO labels.")
@@ -537,6 +552,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=LABEL_FORMAT_CHOICES,
         default=None,
         help="Override dataset.label_format when the create-dataset step runs.",
+    )
+    run.add_argument(
+        "--sample-ratio",
+        type=float,
+        default=None,
+        help="Override dataset.sample_ratio when the create-dataset step runs.",
     )
     run.add_argument(
         "--steps",

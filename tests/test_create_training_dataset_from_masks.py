@@ -3,12 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
+import auto_labeling_tool.app.create_training_dataset_from_masks as dataset_module
 from auto_labeling_tool.app.create_training_dataset_from_masks import (
     Sample,
     _dataset_dir_name,
     _ensure_new_dataset_root,
     _load_mask_stack,
+    _subsample_samples,
     _write_labels,
 )
 
@@ -25,9 +28,120 @@ def _write_image(path: Path) -> Path:
     return path
 
 
+def _sample_ids(samples: list[Sample]) -> list[str]:
+    return [sample.image_path.stem for sample in samples]
+
+
+def _make_samples(root: Path, count: int) -> list[Sample]:
+    return [
+        Sample(
+            image_path=root / "images" / f"frame_{idx:03d}.jpg",
+            mask_path=root / "masks" / f"frame_{idx:03d}.npy",
+        )
+        for idx in range(count)
+    ]
+
+
 def test_dataset_dir_name_comes_from_label_format() -> None:
     assert _dataset_dir_name("bbox") == "bbx-based"
     assert _dataset_dir_name("mask") == "mask-based"
+
+
+def test_subsample_none_keeps_all_samples_in_input_order(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, 5)
+
+    selected = _subsample_samples(samples, sample_ratio=None, seed=42)
+
+    assert selected == samples
+
+
+def test_subsample_ratio_one_keeps_all_samples(tmp_path: Path) -> None:
+    samples = list(reversed(_make_samples(tmp_path, 5)))
+
+    selected = _subsample_samples(samples, sample_ratio=1.0, seed=42)
+
+    assert set(_sample_ids(selected)) == set(_sample_ids(samples))
+    assert len(selected) == len(samples)
+
+
+def test_subsample_ratio_uses_ceil_for_nonzero_selection(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, 5)
+
+    selected = _subsample_samples(samples, sample_ratio=0.01, seed=42)
+
+    assert len(selected) == 1
+
+
+def test_subsample_is_deterministic_for_same_seed(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, 8)
+
+    first = _subsample_samples(samples, sample_ratio=0.5, seed=123)
+    second = _subsample_samples(samples, sample_ratio=0.5, seed=123)
+
+    assert _sample_ids(first) == _sample_ids(second)
+
+
+def test_subsample_can_select_different_samples_for_different_seeds(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, 8)
+
+    first = _subsample_samples(samples, sample_ratio=0.5, seed=1)
+    second = _subsample_samples(samples, sample_ratio=0.5, seed=2)
+
+    assert set(_sample_ids(first)) != set(_sample_ids(second))
+
+
+def test_subsample_does_not_depend_on_input_order(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, 8)
+
+    selected = _subsample_samples(samples, sample_ratio=0.5, seed=123)
+    selected_from_reversed = _subsample_samples(list(reversed(samples)), sample_ratio=0.5, seed=123)
+
+    assert _sample_ids(selected) == _sample_ids(selected_from_reversed)
+
+
+@pytest.mark.parametrize("sample_ratio", [0.0, -0.1, 1.1])
+def test_subsample_rejects_invalid_ratios(tmp_path: Path, sample_ratio: float) -> None:
+    samples = _make_samples(tmp_path, 3)
+
+    with pytest.raises(ValueError, match="sample_ratio must be in"):
+        _subsample_samples(samples, sample_ratio=sample_ratio, seed=42)
+
+
+def test_main_subsamples_before_train_val_split(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, 5)
+    split_input_lengths = []
+
+    monkeypatch.setattr(
+        dataset_module,
+        "parse_args",
+        lambda: dataset_module.argparse.Namespace(
+            masks_dir=tmp_path / "masks",
+            images_dir=tmp_path / "images",
+            output_root=tmp_path / "output",
+            val_ratio=0.5,
+            seed=42,
+            sample_ratio=0.4,
+            class_name="bed",
+            label_format="bbox",
+        ),
+    )
+    monkeypatch.setattr(dataset_module, "_collect_samples", lambda _masks_dir, _images_dir: samples)
+    monkeypatch.setattr(dataset_module, "_ensure_new_dataset_root", lambda _dataset_root: None)
+    monkeypatch.setattr(dataset_module, "_link_images", lambda _samples, _images_dir: None)
+    monkeypatch.setattr(dataset_module, "_write_labels", lambda _samples, _labels_dir, class_id, label_format: None)
+    monkeypatch.setattr(dataset_module, "_write_data_yaml", lambda _root, class_name, nc=1: None)
+
+    def split_spy(split_samples: list[Sample], val_ratio: float, seed: int) -> tuple[list[Sample], list[Sample]]:
+        split_input_lengths.append(len(split_samples))
+        return [], split_samples
+
+    monkeypatch.setattr(dataset_module, "_split_train_val", split_spy)
+    (tmp_path / "masks").mkdir()
+    (tmp_path / "images").mkdir()
+
+    dataset_module.main()
+
+    assert split_input_lengths == [2]
 
 
 def test_existing_non_empty_dataset_root_is_rejected(tmp_path: Path) -> None:
