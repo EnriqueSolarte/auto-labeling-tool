@@ -4,12 +4,21 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, cast
 
 import cv2
+import numpy as np
+
+from auto_labeling_tool.app.create_training_dataset_from_masks import (
+    LABEL_FORMAT_CHOICES,
+    LabelFormat,
+)
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
+LABEL_FORMAT_ARG_CHOICES = ("auto", *LABEL_FORMAT_CHOICES)
+MASK_OVERLAY_ALPHA = 0.85
+MASK_CONTOUR_THICKNESS = 2
 
 
 def _list_image_files(root: Path) -> list[Path]:
@@ -83,6 +92,82 @@ def _load_yolo_boxes(label_path: Path, img_shape: tuple[int, int]) -> list[tuple
     return boxes
 
 
+def _load_yolo_polygons(label_path: Path, img_shape: tuple[int, int]) -> list[list[tuple[int, int]]]:
+    h, w = img_shape
+    if w <= 0 or h <= 0:
+        return []
+
+    polygons: list[list[tuple[int, int]]] = []
+    if not label_path.is_file():
+        return polygons
+
+    with label_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 7 or (len(parts) - 1) % 2 != 0:
+                continue
+            try:
+                coords = [float(value) for value in parts[1:]]
+            except ValueError:
+                continue
+
+            points: list[tuple[int, int]] = []
+            for x_norm, y_norm in zip(coords[0::2], coords[1::2]):
+                x = int(round(x_norm * w))
+                y = int(round(y_norm * h))
+                x = max(0, min(x, w - 1))
+                y = max(0, min(y, h - 1))
+                points.append((x, y))
+
+            if len(points) >= 3:
+                polygons.append(points)
+
+    return polygons
+
+
+def _label_row_format(parts: Sequence[str]) -> LabelFormat | None:
+    try:
+        _ = [float(value) for value in parts]
+    except ValueError:
+        return None
+    if len(parts) == 5:
+        return "bbox"
+    if len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+        return "mask"
+    return None
+
+
+def _infer_label_format(labels_dir: Path, requested: str = "auto") -> LabelFormat:
+    if requested != "auto":
+        if requested not in LABEL_FORMAT_CHOICES:
+            raise ValueError(f"Unsupported label format: {requested}")
+        return cast(LabelFormat, requested)
+
+    detected: set[LabelFormat] = set()
+    for label_path in sorted(labels_dir.rglob("*.txt")):
+        with label_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if not parts:
+                    continue
+                label_format = _label_row_format(parts)
+                if label_format is not None:
+                    detected.add(label_format)
+                if len(detected) > 1:
+                    raise ValueError(
+                        f"Mixed bbox and mask label rows found under {labels_dir}; "
+                        "use a single label format per dataset."
+                    )
+
+    if detected:
+        return next(iter(detected))
+
+    raise ValueError(
+        f"Could not infer label format from labels under {labels_dir}. "
+        "Use --label-format bbox or --label-format mask."
+    )
+
+
 def _draw_boxes(
     img,
     boxes: Sequence[tuple[int, int, int, int]],
@@ -101,6 +186,56 @@ def _draw_boxes(
         2,
         cv2.LINE_AA,
     )
+
+
+def _draw_polygons(
+    img,
+    polygons: Sequence[Sequence[tuple[int, int]]],
+    label: str,
+    color: tuple[int, int, int],
+) -> None:
+    overlay = img.copy()
+    for polygon in polygons:
+        points = np.array(polygon, dtype=np.int32)
+        cv2.fillPoly(overlay, [points], color)
+    if polygons:
+        cv2.addWeighted(overlay, MASK_OVERLAY_ALPHA, img, 1.0 - MASK_OVERLAY_ALPHA, 0.0, img)
+    for polygon in polygons:
+        points = np.array(polygon, dtype=np.int32)
+        cv2.polylines(
+            img,
+            [points],
+            isClosed=True,
+            color=color,
+            thickness=MASK_CONTOUR_THICKNESS,
+        )
+    cv2.putText(
+        img,
+        label,
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_label(
+    img,
+    label_path: Path,
+    label_format: LabelFormat,
+    label: str,
+    color: tuple[int, int, int],
+) -> None:
+    if label_format == "bbox":
+        boxes = _load_yolo_boxes(label_path, img.shape[:2])
+        _draw_boxes(img, boxes, label, color)
+    elif label_format == "mask":
+        polygons = _load_yolo_polygons(label_path, img.shape[:2])
+        _draw_polygons(img, polygons, label, color)
+    else:
+        raise ValueError(f"Unsupported label format: {label_format}")
 
 
 def _draw_status(img, status: str, color: tuple[int, int, int]) -> None:
@@ -179,6 +314,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
+        "-d",
         "--dataset-root",
         required=True,
         type=Path,
@@ -223,6 +359,12 @@ def parse_args() -> argparse.Namespace:
         "--ensure-labels",
         action="store_true",
         help="Create empty label files for images missing a .txt label file.",
+    )
+    parser.add_argument(
+        "--label-format",
+        choices=LABEL_FORMAT_ARG_CHOICES,
+        default="auto",
+        help="Label geometry to draw. Default auto infers from label rows.",
     )
     return parser.parse_args()
 
@@ -277,6 +419,8 @@ def main() -> None:
         _prune_dataset(images_dir, labels_dir, blacklisted)
         return
 
+    label_format = _infer_label_format(labels_dir, str(args.label_format))
+
     idx = int(args.int_idx)
     total = len(sorted_paths)
     if idx < 0 or idx >= total:
@@ -292,16 +436,15 @@ def main() -> None:
         rel_name = rel.name
         label_path = labels_dir / rel.with_suffix(".txt")
         _ensure_label_file(label_path)
-        boxes = _load_yolo_boxes(label_path, img.shape[:2])
 
         label = f"{rel_name} ({idx + 1}/{total})"
         if rel_name in blacklisted:
             box_color = (0, 0, 255)
-            _draw_boxes(img, boxes, label, box_color)
+            _draw_label(img, label_path, label_format, label, box_color)
             _draw_status(img, "REJECTED", box_color)
         else:
             box_color = (0, 200, 0)
-            _draw_boxes(img, boxes, label, box_color)
+            _draw_label(img, label_path, label_format, label, box_color)
             _draw_status(img, "ACCEPTED", box_color)
 
         cv2.imshow(window_name, img)

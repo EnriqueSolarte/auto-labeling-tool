@@ -67,15 +67,9 @@ def default_config(images_dir: Path, output_dir: Path) -> dict[str, Any]:
         },
         "dataset": {
             "class_name": "bed",
+            "label_format": "bbox",
             "val_ratio": 0.2,
             "seed": 42,
-        },
-        "review": {
-            "split": "train",
-            "fraction": 1.0,
-            "max_frames": 0,
-            "wait_ms": 0,
-            "init_idx": 0,
         },
     }
 
