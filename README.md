@@ -71,6 +71,13 @@ container:
 pip install -e .
 ```
 
+Install test dependencies when preparing a merge request or reviewing changes:
+
+```bash
+pip install -e ".[test]"
+python3 -m pytest
+```
+
 Check that the command is available:
 
 ```bash
@@ -91,12 +98,27 @@ auto-label-tool create-config -d /workspace/assets/samples -o /workspace/assets/
 auto-label-tool create-masks -c /workspace/assets/runs/assets__samples/cfg.yaml
 auto-label-tool aggregate-masks -c /workspace/assets/runs/assets__samples/cfg.yaml
 auto-label-tool create-dataset -c /workspace/assets/runs/assets__samples/cfg.yaml
-auto-label-tool validate -c /workspace/assets/runs/assets__samples/cfg.yaml
+auto-label-tool validate -d /workspace/assets/runs/assets__samples/datasets/bbx-based --split train
 ```
 
-By default, `create-config` derives a data id from the last two input path
-parts. For example, `/workspace/assets/samples` becomes `assets__samples`, so
-`run.root` and the default config path become `OUTPUT_DIR/assets__samples`.
+Dataset creation reads `.npy` mask stacks from `average_mask` directories. By default it writes YOLO detection labels as `class cx cy width height`. To train a YOLO segmentation model from the same masks, set `dataset.label_format: mask` in the config or override one run:
+
+```bash
+auto-label-tool create-dataset \
+  -c /workspace/assets/runs/assets__samples/cfg.yaml \
+  --label-format mask
+```
+
+`label_format: mask` writes YOLO polygon rows as `class x1 y1 x2 y2 ... xn yn`,
+with normalized coordinates. The interactive validation command draws either
+bbox rectangles or mask polygons by inspecting the label rows in the selected
+dataset split. The visualization and stats utilities are still bbox-oriented
+and should not be treated as full segmentation inspectors yet.
+
+Dataset directories are named by label type under `paths.datasets_root`:
+`bbx-based` for bbox labels and `mask-based` for segmentation labels. To avoid stale labels, dataset creation refuses to write into a non-empty directory for the same label type.
+
+By default, `create-config` derives a data id from the last two input path parts. For example, `/workspace/assets/samples` becomes `assets__samples`, so `run.root` and the default config path become `OUTPUT_DIR/assets__samples`.
 
 The default full run executes mask creation, aggregation, and dataset creation:
 
@@ -132,7 +154,8 @@ This command appends the completion hook to `~/.bashrc` inside the environment w
 <Output-dir>/<run.id_data>
   |-- cfg.yaml
   |-- datasets
-  |   `-- 20260514_093720
+  |   |-- bbx-based
+  |   `-- mask-based
   `-- masks
       |-- 20260514_093444
       |-- 20260514_093522
@@ -141,17 +164,29 @@ This command appends the completion hook to `~/.bashrc` inside the environment w
 
 ## Utility Commands
 
+### Validate Labels
+
+Validate an already-created dataset directly. The command infers bbox versus
+mask labels from the selected split's label files; use `--label-format` only
+when the split has no non-empty labels yet.
+
+```bash
+auto-label-tool validate \
+  -d /workspace/assets/runs/assets__samples/datasets/mask-based \
+  --split train
+```
+
 ### Visualize Labels
 
 Use the dataset directory created under `paths.datasets_root`, for example:
 
 ```text
-/workspace/assets/runs/assets__samples/datasets/20260514_093720
+/workspace/assets/runs/assets__samples/datasets/bbx-based
 ```
 
 ```bash
 python3 -m auto_labeling_tool.app.visualize_dataset \
-  --dataset-root /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
+  --dataset-root /workspace/assets/runs/assets__samples/datasets/bbx-based \
   --split train \
   --fraction 0.1
 ```
@@ -160,7 +195,7 @@ Optional video export:
 
 ```bash
 python3 -m auto_labeling_tool.app.visualize_dataset \
-  --dataset-root /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
+  --dataset-root /workspace/assets/runs/assets__samples/datasets/bbx-based \
   --split train \
   --output-video /tmp/train_vis.mp4 \
   --no-window
@@ -170,7 +205,7 @@ python3 -m auto_labeling_tool.app.visualize_dataset \
 
 ```bash
 python3 -m auto_labeling_tool.app.dataset_stats \
-  --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720
+  --dataset-dir /workspace/assets/runs/assets__samples/datasets/bbx-based
 ```
 
 Reports per-split counts for images, labels, missing labels, orphan labels,
@@ -185,7 +220,7 @@ Preview the split counts without changing files:
 
 ```bash
 python3 -m auto_labeling_tool.app.shuffle_dataset \
-  --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
+  --dataset-dir /workspace/assets/runs/assets__samples/datasets/bbx-based \
   --ratios 0.7 0.2 0.1 \
   --dry-run
 ```
@@ -194,7 +229,7 @@ Apply the reshuffle:
 
 ```bash
 python3 -m auto_labeling_tool.app.shuffle_dataset \
-  --dataset-dir /workspace/assets/runs/assets__samples/datasets/20260514_093720 \
+  --dataset-dir /workspace/assets/runs/assets__samples/datasets/bbx-based \
   --ratios 0.7 0.2 0.1 \
   --seed 42
 ```

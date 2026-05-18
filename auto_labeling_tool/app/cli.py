@@ -209,7 +209,10 @@ def _aggregate(args: argparse.Namespace) -> None:
 
 def _create_dataset(args: argparse.Namespace) -> None:
     from auto_labeling_tool.app.create_training_dataset_from_masks import (
+        LABEL_FORMAT_CHOICES,
         _collect_samples,
+        _dataset_dir_name,
+        _ensure_new_dataset_root,
         _link_images,
         _log,
         _split_train_val,
@@ -239,29 +242,33 @@ def _create_dataset(args: argparse.Namespace) -> None:
 
     val_ratio = float(dataset.get("val_ratio", 0.2))
     seed = int(dataset.get("seed", 42))
+    label_format = args.label_format or str(dataset.get("label_format", "bbox"))
+    if label_format not in LABEL_FORMAT_CHOICES:
+        raise ValueError(f"Unsupported dataset.label_format: {label_format}")
     train_samples, val_samples = _split_train_val(samples, val_ratio=val_ratio, seed=seed)
     _log(
         "Performed train/val split: %d train, %d val (val_ratio=%.2f, seed=%d)"
         % (len(train_samples), len(val_samples), val_ratio, seed)
     )
 
-    dataset_root = output_root / cfg.run_id
+    dataset_root = output_root / _dataset_dir_name(label_format)
+    _ensure_new_dataset_root(dataset_root)
     _log(f"Creating dataset folders under {dataset_root}")
     _link_images(train_samples, dataset_root / "images" / "train")
     _link_images(val_samples, dataset_root / "images" / "val")
-    _write_labels(train_samples, dataset_root / "labels" / "train", class_id=0)
-    _write_labels(val_samples, dataset_root / "labels" / "val", class_id=0)
+    _write_labels(train_samples, dataset_root / "labels" / "train", class_id=0, label_format=label_format)
+    _write_labels(val_samples, dataset_root / "labels" / "val", class_id=0, label_format=label_format)
     _write_data_yaml(dataset_root, class_name=str(dataset.get("class_name", "bed")), nc=1)
     _log(f"Created dataset at: {dataset_root}")
 
 
 def _validate(args: argparse.Namespace) -> None:
     from auto_labeling_tool.app.validate_dataset_annotations import (
-        _draw_boxes,
+        _draw_label,
         _draw_status,
         _ensure_label_file,
+        _infer_label_format,
         _list_image_files,
-        _load_yolo_boxes,
         _prune_dataset,
         _read_blacklist,
         _sort_seq,
@@ -269,14 +276,12 @@ def _validate(args: argparse.Namespace) -> None:
     )
     import cv2
 
-    cfg = _load_cli_config(args)
-    review = cfg.data["review"]
-    dataset_root = cfg.dataset_root
-    split = str(review.get("split", "train"))
-    fraction = float(review.get("fraction", 1.0))
-    max_frames = int(review.get("max_frames", 0))
-    wait_ms = int(review.get("wait_ms", 0))
-    idx = int(review.get("init_idx", 0))
+    dataset_root: Path = args.dataset_dir.expanduser().resolve()
+    split = str(args.split)
+    fraction = float(args.fraction)
+    max_frames = int(args.max_frames)
+    wait_ms = int(args.wait_ms)
+    idx = int(args.init_idx)
 
     if not dataset_root.is_dir():
         raise FileNotFoundError(f"dataset_root is not a directory: {dataset_root}")
@@ -310,9 +315,11 @@ def _validate(args: argparse.Namespace) -> None:
         _prune_dataset(images_dir, labels_dir, blacklisted)
         return
 
+    label_format = _infer_label_format(labels_dir, str(args.label_format))
+
     total = len(sorted_paths)
     if idx < 0 or idx >= total:
-        raise ValueError(f"review.init_idx must be in [0, {total - 1}], got {idx}")
+        raise ValueError(f"init-idx must be in [0, {total - 1}], got {idx}")
 
     window_name = f"{split} annotation review"
     while 0 <= idx < total:
@@ -325,15 +332,14 @@ def _validate(args: argparse.Namespace) -> None:
         rel_name = rel.name
         label_path = labels_dir / rel.with_suffix(".txt")
         _ensure_label_file(label_path)
-        boxes = _load_yolo_boxes(label_path, img.shape[:2])
         label = f"{rel_name} ({idx + 1}/{total})"
         if rel_name in blacklisted:
             box_color = (0, 0, 255)
-            _draw_boxes(img, boxes, label, box_color)
+            _draw_label(img, label_path, label_format, label, box_color)
             _draw_status(img, "REJECTED", box_color)
         else:
             box_color = (0, 200, 0)
-            _draw_boxes(img, boxes, label, box_color)
+            _draw_label(img, label_path, label_format, label, box_color)
             _draw_status(img, "ACCEPTED", box_color)
 
         cv2.imshow(window_name, img)
@@ -373,7 +379,6 @@ def _run(args: argparse.Namespace) -> None:
         "create-masks": _create_masks,
         "aggregate-masks": _aggregate,
         "create-dataset": _create_dataset,
-        "validate": _validate,
     }
     for step in steps:
         if step not in handlers:
@@ -411,6 +416,8 @@ def _update_root(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from auto_labeling_tool.app.create_training_dataset_from_masks import LABEL_FORMAT_CHOICES
+
     parser = argparse.ArgumentParser(prog="auto-label-tool")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -467,20 +474,74 @@ def build_parser() -> argparse.ArgumentParser:
 
     create_dataset = sub.add_parser("create-dataset", help="Create a YOLO dataset from masks.")
     _add_config_arg(create_dataset)
+    create_dataset.add_argument(
+        "--label-format",
+        choices=LABEL_FORMAT_CHOICES,
+        default=None,
+        help="Override dataset.label_format for this run. Default comes from config.",
+    )
     create_dataset.set_defaults(func=_create_dataset)
 
     validate = sub.add_parser("validate", help="Review generated YOLO labels.")
-    _add_config_arg(validate)
+    validate.add_argument(
+        "-d",
+        "--dataset-dir",
+        required=True,
+        type=Path,
+        help="Dataset root containing images/ and labels/ directories.",
+    )
+    validate.add_argument(
+        "--split",
+        choices=["train", "val", "test"],
+        default="train",
+        help="Which split to validate.",
+    )
+    validate.add_argument(
+        "--fraction",
+        type=float,
+        default=1.0,
+        help="Fraction of frames to validate from the sorted list (0 < fraction <= 1].",
+    )
+    validate.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="Optional maximum number of frames to validate (0 disables limit).",
+    )
+    validate.add_argument(
+        "--wait-ms",
+        type=int,
+        default=0,
+        help="Delay per frame in ms for window playback (0 = wait for key).",
+    )
+    validate.add_argument(
+        "--init-idx",
+        type=int,
+        default=0,
+        help="Start index in the sorted frame list (0-based).",
+    )
     validate.add_argument("--ensure-labels", action="store_true")
     validate.add_argument("--prune", action="store_true")
+    validate.add_argument(
+        "--label-format",
+        choices=("auto", *LABEL_FORMAT_CHOICES),
+        default="auto",
+        help="Label geometry to draw. Default auto infers from label rows.",
+    )
     validate.set_defaults(func=_validate)
 
     run = sub.add_parser("run", help="Run create-masks, aggregate-masks, and create-dataset.")
     _add_config_arg(run)
     run.add_argument(
+        "--label-format",
+        choices=LABEL_FORMAT_CHOICES,
+        default=None,
+        help="Override dataset.label_format when the create-dataset step runs.",
+    )
+    run.add_argument(
         "--steps",
         nargs="+",
-        choices=["create-masks", "aggregate-masks", "create-dataset", "validate"],
+        choices=["create-masks", "aggregate-masks", "create-dataset"],
         help="Optional subset/order of steps to run.",
     )
     run.set_defaults(func=_run)

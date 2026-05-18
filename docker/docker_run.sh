@@ -3,7 +3,7 @@
 xhost +local:
 
 IMAGE="auto-labeling:dev"
-CONTAINER_NAME="auto-labeling-dev"
+CONTAINER_NAME="auto-labeling-tool"
 
 # this directory
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

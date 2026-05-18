@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Literal, Sequence, get_args
 
 import cv2
 import numpy as np
@@ -15,6 +15,12 @@ from tqdm import tqdm
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
 MASK_EXTS = {".npy"}
+LabelFormat = Literal["bbox", "mask"]
+LABEL_FORMAT_CHOICES: tuple[str, ...] = tuple(str(choice) for choice in get_args(LabelFormat))
+DATASET_DIR_BY_LABEL_FORMAT: dict[LabelFormat, str] = {
+    "bbox": "bbx-based",
+    "mask": "mask-based",
+}
 
 
 @dataclass(frozen=True)
@@ -53,34 +59,33 @@ def _filter_average_masks(mask_paths: list[Path], masks_dir: Path) -> list[Path]
     return [p for p in mask_paths if "average_mask" in p.parts]
 
 
-def _load_mask_stack(mask_path: Path) -> np.ndarray | None:
+def _load_mask_stack(mask_path: Path) -> tuple[np.ndarray | None, str | None]:
     """
     Load a mask file as a boolean stack with shape [n, H, W].
 
-    Supports both image masks and .npy stacks.
+    Only .npy stacks are supported. A 2D array is treated as a single-object
+    stack; a 3D array is treated as [n, H, W].
     """
-    if mask_path.suffix.lower() == ".npy":
-        try:
-            arr = np.load(str(mask_path))
-        except Exception:
-            return None
-        if arr.ndim == 2:
-            arr = arr[None, ...]
-        if arr.ndim != 3:
-            return None
-        mask_stack = arr.astype(bool)
-    else:
-        img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-        if img is None:
-            return None
-        mask_stack = (img > 0)[None, ...]
+    if mask_path.suffix.lower() != ".npy":
+        return None, "unsupported mask extension"
+    try:
+        arr = np.load(str(mask_path))
+    except Exception as exc:
+        return None, f"could not load .npy mask: {exc}"
+    if arr.ndim == 2:
+        arr = arr[None, ...]
+    if arr.ndim != 3:
+        return None, f"invalid mask shape {arr.shape}; expected [n, H, W]"
+    mask_stack = arr.astype(bool)
 
     # Drop empty slices.
     if mask_stack.size == 0:
-        return None
+        return None, "empty mask stack"
     keep = mask_stack.reshape(mask_stack.shape[0], -1).any(axis=1)
     mask_stack = mask_stack[keep]
-    return mask_stack if mask_stack.size > 0 else None
+    if mask_stack.size == 0:
+        return None, "all mask slices are empty"
+    return mask_stack, None
 
 
 def _bboxes_from_mask_stack(mask_stack: np.ndarray) -> list[tuple[float, float, float, float]]:
@@ -117,6 +122,44 @@ def _bboxes_from_mask_stack(mask_stack: np.ndarray) -> list[tuple[float, float, 
             continue
         boxes.append(bbx)
     return boxes
+
+
+def _normalize_point(x: float, y: float, width: int, height: int) -> tuple[float, float]:
+    return (
+        min(max(x / float(width), 0.0), 1.0),
+        min(max(y / float(height), 0.0), 1.0),
+    )
+
+
+def _polygons_from_mask_stack(mask_stack: np.ndarray) -> list[list[tuple[float, float]]]:
+    if mask_stack.ndim != 3:
+        return []
+    n, h, w = mask_stack.shape
+    if h <= 0 or w <= 0 or n == 0:
+        return []
+
+    polygons: list[list[tuple[float, float]]] = []
+    for mask in mask_stack:
+        if not mask.any():
+            continue
+
+        mask_u8 = mask.astype(np.uint8)
+        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            continue
+
+        def contour_key(contour: np.ndarray) -> tuple[float, int, int, int, int]:
+            x, y, cw, ch = cv2.boundingRect(contour)
+            return (float(cv2.contourArea(contour)), cw * ch, -y, -x)
+
+        contour = max(contours, key=contour_key).reshape(-1, 2)
+        if len(contour) < 3:
+            continue
+
+        polygon = [_normalize_point(float(x), float(y), w, h) for x, y in contour]
+        if len(polygon) >= 3:
+            polygons.append(polygon)
+    return polygons
 
 
 def _collect_samples(masks_dir: Path, images_dir: Path) -> list[Sample]:
@@ -216,21 +259,57 @@ def _symlink_safe(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
-def _write_labels(samples: Sequence[Sample], labels_dir: Path, class_id: int) -> None:
+def _write_labels(
+    samples: Sequence[Sample],
+    labels_dir: Path,
+    class_id: int,
+    label_format: LabelFormat = "bbox",
+) -> None:
     labels_dir.mkdir(parents=True, exist_ok=True)
-    _log(f"Writing labels for {len(samples)} samples into {labels_dir}")
+    _log(f"Writing {label_format} labels for {len(samples)} samples into {labels_dir}")
     for s in tqdm(samples, desc="Labels", unit="sample"):
-        mask_stack = _load_mask_stack(s.mask_path)
+        mask_stack, skip_reason = _load_mask_stack(s.mask_path)
         if mask_stack is None:
+            _log(f"Skipping {s.mask_path}: {skip_reason}")
             continue
 
-        boxes = _bboxes_from_mask_stack(mask_stack)
-        if not boxes:
+        if label_format == "bbox":
+            rows = [
+                f"{class_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
+                for cx, cy, bw, bh in _bboxes_from_mask_stack(mask_stack)
+            ]
+        elif label_format == "mask":
+            rows = []
+            for polygon in _polygons_from_mask_stack(mask_stack):
+                coords = " ".join(f"{coord:.6f}" for point in polygon for coord in point)
+                rows.append(f"{class_id} {coords}")
+        else:
+            raise ValueError(f"Unsupported label_format: {label_format}")
+
+        if not rows:
+            _log(f"Skipping {s.mask_path}: no valid {label_format} labels")
             continue
         label_path = labels_dir / (s.image_path.stem + ".txt")
         with label_path.open("w", encoding="utf-8") as f:
-            for cx, cy, bw, bh in boxes:
-                f.write(f"{class_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
+            for row in rows:
+                f.write(row + "\n")
+
+
+def _dataset_dir_name(label_format: LabelFormat) -> str:
+    try:
+        return DATASET_DIR_BY_LABEL_FORMAT[label_format]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported label_format: {label_format}") from exc
+
+
+def _ensure_new_dataset_root(dataset_root: Path) -> None:
+    if not dataset_root.exists():
+        return
+    if any(dataset_root.iterdir()):
+        raise FileExistsError(
+            f"Dataset directory already exists and is not empty: {dataset_root}. "
+            "Move or remove it before regenerating this label type."
+        )
 
 
 def _link_images(samples: Sequence[Sample], images_dir: Path) -> None:
@@ -262,19 +341,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Create a YOLO training dataset from mask annotations and RGB images.\n"
-            "Masks (binary images or .npy stacks shaped [n, H, W]) may reside under a root like /data/masks or any nested subdirectory.\n"
+            "Masks must be .npy stacks shaped [n, H, W] and may reside under a root like /data/masks or any nested subdirectory.\n"
             "Example:\n"
             "  python -m auto_labeling_tool.app.create_training_dataset_from_masks \\\n"
             "      --masks_dir /data/masks \\\n"
             "      --images_dir /data/with_bed \\\n"
-            "      --output-root /data/training_data"
+            "      --output-root /data/training_data \\\n"
+            "      --label-format bbox"
         )
     )
     parser.add_argument(
         "--masks_dir",
         required=True,
         type=Path,
-        help="Root directory containing mask files (.png or .npy stacks; may include subdirectories).",
+        help="Root directory containing .npy mask stacks; may include subdirectories.",
     )
     parser.add_argument(
         "--images_dir",
@@ -305,6 +385,15 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="bed",
         help="Name of the single YOLO class.",
+    )
+    parser.add_argument(
+        "--label-format",
+        choices=LABEL_FORMAT_CHOICES,
+        default="bbox",
+        help=(
+            "YOLO label format to write from .npy masks: bbox writes "
+            "'class cx cy w h'; mask writes 'class x1 y1 x2 y2 ...'."
+        ),
     )
     return parser.parse_args()
 
@@ -342,8 +431,8 @@ def main() -> None:
         % (len(train_samples), len(val_samples), float(args.val_ratio), int(args.seed))
     )
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dataset_root = output_root / timestamp
+    dataset_root = output_root / _dataset_dir_name(args.label_format)
+    _ensure_new_dataset_root(dataset_root)
     _log(f"Creating dataset folders under {dataset_root}")
 
     images_train_dir = dataset_root / "images" / "train"
@@ -353,8 +442,8 @@ def main() -> None:
 
     _link_images(train_samples, images_train_dir)
     _link_images(val_samples, images_val_dir)
-    _write_labels(train_samples, labels_train_dir, class_id=0)
-    _write_labels(val_samples, labels_val_dir, class_id=0)
+    _write_labels(train_samples, labels_train_dir, class_id=0, label_format=args.label_format)
+    _write_labels(val_samples, labels_val_dir, class_id=0, label_format=args.label_format)
     _write_data_yaml(dataset_root, class_name=args.class_name, nc=1)
 
     _log(f"Created dataset at: {dataset_root}")
