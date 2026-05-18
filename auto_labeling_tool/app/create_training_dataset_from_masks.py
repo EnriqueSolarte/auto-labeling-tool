@@ -227,6 +227,31 @@ def _collect_samples(masks_dir: Path, images_dir: Path) -> list[Sample]:
     return samples
 
 
+def _sample_key(sample: Sample) -> tuple[str, str]:
+    return (sample.mask_path.as_posix(), sample.image_path.as_posix())
+
+
+def _subsample_samples(samples: Sequence[Sample], sample_ratio: float | None, seed: int) -> list[Sample]:
+    if sample_ratio is None:
+        return list(samples)
+
+    ratio = float(sample_ratio)
+    if not 0.0 < ratio <= 1.0:
+        raise ValueError(f"sample_ratio must be in (0, 1], got {sample_ratio}")
+    if not samples:
+        return []
+
+    sorted_samples = sorted(samples, key=_sample_key)
+    sample_count = math.ceil(len(sorted_samples) * ratio)
+    sample_count = min(max(sample_count, 1), len(sorted_samples))
+
+    rng = np.random.default_rng(seed)
+    indices = np.arange(len(sorted_samples))
+    rng.shuffle(indices)
+    selected_indices = sorted(indices[:sample_count].tolist())
+    return [sorted_samples[i] for i in selected_indices]
+
+
 def _split_train_val(samples: Sequence[Sample], val_ratio: float, seed: int) -> tuple[list[Sample], list[Sample]]:
     if not samples:
         return [], []
@@ -381,6 +406,12 @@ def parse_args() -> argparse.Namespace:
         help="Random seed used for the train/val split.",
     )
     parser.add_argument(
+        "--sample-ratio",
+        type=float,
+        default=None,
+        help="Optional deterministic raw sample fraction to use before train/val splitting.",
+    )
+    parser.add_argument(
         "--class-name",
         type=str,
         default="bed",
@@ -423,6 +454,13 @@ def main() -> None:
         raise RuntimeError(
             "No samples found: ensure that mask files match image filenames.")
     _log(f"Found {len(samples)} samples with matching masks and images")
+
+    samples = _subsample_samples(
+        samples, sample_ratio=args.sample_ratio, seed=int(args.seed))
+    _log(
+        "Selected %d raw samples for splitting (sample_ratio=%s, seed=%d)"
+        % (len(samples), args.sample_ratio, int(args.seed))
+    )
 
     train_samples, val_samples = _split_train_val(
         samples, val_ratio=float(args.val_ratio), seed=int(args.seed))
