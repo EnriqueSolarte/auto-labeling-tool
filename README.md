@@ -115,6 +115,29 @@ bbox rectangles or mask polygons by inspecting the label rows in the selected
 dataset split. The visualization and stats utilities are still bbox-oriented
 and should not be treated as full segmentation inspectors yet.
 
+To build a smaller reproducible dataset from a large raw mask set, set
+`dataset.sample_ratio` in the config. Sampling is applied to matched raw
+mask/image pairs before the train/val split, and uses `dataset.seed` so the
+same inputs, ratio, and seed select the same raw samples:
+
+```yaml
+dataset:
+  sample_ratio: 0.25
+  seed: 42
+```
+
+For a one-off run, override the config value on either dataset creation command:
+
+```bash
+auto-label-tool create-dataset \
+  -c /workspace/assets/runs/assets__samples/cfg.yaml \
+  --sample-ratio 0.25
+
+auto-label-tool run \
+  -c /workspace/assets/runs/assets__samples/cfg.yaml \
+  --sample-ratio 0.25
+```
+
 Dataset directories are named by label type under `paths.datasets_root`:
 `bbx-based` for bbox labels and `mask-based` for segmentation labels. To avoid stale labels, dataset creation refuses to write into a non-empty directory for the same label type.
 
