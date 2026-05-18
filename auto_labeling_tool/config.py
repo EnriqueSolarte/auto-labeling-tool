@@ -67,9 +67,9 @@ def default_config(images_dir: Path, output_dir: Path) -> dict[str, Any]:
         },
         "dataset": {
             "class_name": "bed",
-            "label_format": "mask",
+            "label_format": "bbox",
             "val_ratio": 0.2,
-            "sample_ratio": 0.5,
+            "sample_ratio": None,
             "seed": 42,
         },
     }
