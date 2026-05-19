@@ -151,6 +151,16 @@ def _create_config(args: argparse.Namespace) -> None:
     print(f"Data id: {data_id}")
     print(f"Run root: {run_root}")
     print(f"Wrote config: {written}")
+    if getattr(args, "run", False):
+        run_args = argparse.Namespace(
+            config=written,
+            update_root=False,
+            label_format=None,
+            sample_ratio=None,
+            steps=None,
+        )
+        print(f"[auto-label-tool] Running pipeline with created config: {written}")
+        _run(run_args)
 
 
 def _create_masks(args: argparse.Namespace) -> None:
@@ -472,6 +482,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional. Config output path. Default: "
             f"OUTPUT_DIR/DATA_ID/{DEFAULT_CONFIG_NAME}."
         ),
+    )
+    create_config.add_argument(
+        "--run",
+        action="store_true",
+        help="Create the config, then run the default pipeline with it.",
     )
     create_config.set_defaults(func=_create_config)
 
