@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from datetime import datetime
 
 from auto_labeling_tool.config import (
     DEFAULT_CONFIG_NAME,
@@ -260,7 +261,8 @@ def _create_dataset(args: argparse.Namespace) -> None:
         % (len(train_samples), len(val_samples), val_ratio, seed)
     )
 
-    dataset_root = output_root / _dataset_dir_name(label_format)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dataset_root = Path(f"{output_root}/{timestamp}_" +_dataset_dir_name(label_format))
     _ensure_new_dataset_root(dataset_root)
     _log(f"Creating dataset folders under {dataset_root}")
     _link_images(train_samples, dataset_root / "images" / "train")
