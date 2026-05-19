@@ -21,18 +21,26 @@ def _parse_args() -> argparse.Namespace:
             "Merge multiple YOLO datasets into a new dataset directory.\n\n"
             "Example:\n"
             "  python -m auto_labeling_tool.app.merge_dataset \\\n"
-            "    --datasets /data/training_data/dataset_a "
+            "    -d /data/training_data/dataset_a "
             "/data/training_data/dataset_b "
             "/data/training_data/dataset_c \\\n"
             "    --output-root /data/training_data"
         )
     )
     parser.add_argument(
-        "--datasets",
+        "-d",
+        "--dataset",
+        dest="dataset",
         nargs="+",
-        required=True,
         type=Path,
         help="Dataset directories to merge.",
+    )
+    parser.add_argument(
+        "--datasets",
+        dest="dataset",
+        nargs="+",
+        type=Path,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--output-root",
@@ -45,7 +53,10 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Show what would be merged without creating files.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.dataset is None:
+        parser.error("the following arguments are required: -d/--dataset")
+    return args
 
 
 def _is_image(path: Path) -> bool:
@@ -118,7 +129,10 @@ def _dedupe_rel_path(rel_path: Path, tag: str, index: int) -> Path:
 
 def main() -> None:
     args = _parse_args()
-    dataset_dirs = [d.expanduser().resolve() for d in args.datasets]
+    dataset_arg = getattr(args, "dataset", None)
+    if dataset_arg is None:
+        dataset_arg = args.datasets
+    dataset_dirs = [d.expanduser().resolve() for d in dataset_arg]
     output_root = args.output_root.expanduser().resolve()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = output_root / f"merge__{timestamp}"

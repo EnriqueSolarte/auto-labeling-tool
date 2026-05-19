@@ -30,15 +30,22 @@ def _parse_args() -> argparse.Namespace:
         description=(
             "Redefine YOLO dataset splits by reassigning files under images/ and labels/.\n"
             "Examples:\n"
-            "  python -m auto_labeling_tool.app.shuffle_dataset --dataset-dir /data/training_data/my_dataset --ratios 0.7 0.2 0.1\n"
-            "  python -m auto_labeling_tool.app.shuffle_dataset --dataset-dir /data/training_data/my_dataset --ratios 0.7 0.2"
+            "  python -m auto_labeling_tool.app.shuffle_dataset -d /data/training_data/my_dataset --ratios 0.7 0.2 0.1\n"
+            "  python -m auto_labeling_tool.app.shuffle_dataset -d /data/training_data/my_dataset --ratios 0.7 0.2"
         )
     )
     parser.add_argument(
-        "--dataset-dir",
-        required=True,
+        "-d",
+        "--dataset",
+        dest="dataset",
         type=Path,
         help="Dataset root containing images/ and labels/ directories.",
+    )
+    parser.add_argument(
+        "--dataset-dir",
+        dest="dataset",
+        type=Path,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--ratios",
@@ -60,7 +67,10 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print planned counts without changing files.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.dataset is None:
+        parser.error("the following arguments are required: -d/--dataset")
+    return args
 
 
 def _resolve_ratios(raw: list[float]) -> tuple[list[str], list[float]]:
@@ -158,7 +168,10 @@ def _move_file(src: Path, dst: Path) -> None:
 
 def main() -> None:
     args = _parse_args()
-    dataset_root = args.dataset_dir.expanduser().resolve()
+    dataset_arg = getattr(args, "dataset", None)
+    if dataset_arg is None:
+        dataset_arg = args.dataset_dir
+    dataset_root = dataset_arg.expanduser().resolve()
     split_names, ratios = _resolve_ratios(list(args.ratios))
     samples, discovered_splits = _collect_samples(dataset_root)
 

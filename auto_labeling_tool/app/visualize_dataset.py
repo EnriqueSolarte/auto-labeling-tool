@@ -244,17 +244,23 @@ def parse_args() -> argparse.Namespace:
             "Visualize a sequential YOLO dataset by sorting frames per sequence.\n"
             "Example:\n"
             "  python seq_dataset_visualization.py \\\n"
-            "      --dataset-root /data/training_data/20251204_072806 \\\n"
+            "      -d /data/training_data/20251204_072806 \\\n"
             "      --split train \\\n"
             "      --output-video /tmp/train_vis.mp4"
         )
     )
     parser.add_argument(
         "-d",
-        "--dataset-root",
-        required=True,
+        "--dataset",
+        dest="dataset",
         type=Path,
         help="Path to the dataset root (e.g. /data/training_data/20251204_072806).",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        dest="dataset",
+        type=Path,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--split",
@@ -303,7 +309,10 @@ def parse_args() -> argparse.Namespace:
         default="auto",
         help="Label geometry to draw. Default auto infers from label rows.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.dataset is None:
+        parser.error("the following arguments are required: -d/--dataset")
+    return args
 
 
 def _open_writer(video_path: Path, fps: float, frame_shape: tuple[int, int]) -> cv2.VideoWriter:
@@ -314,7 +323,10 @@ def _open_writer(video_path: Path, fps: float, frame_shape: tuple[int, int]) -> 
 
 def main() -> None:
     args = parse_args()
-    dataset_root: Path = args.dataset_root.expanduser().resolve()
+    dataset_arg = getattr(args, "dataset", None)
+    if dataset_arg is None:
+        dataset_arg = args.dataset_root
+    dataset_root: Path = dataset_arg.expanduser().resolve()
     split: str = args.split
     fraction: float = float(args.fraction)
 
