@@ -38,7 +38,7 @@ def _parse_args() -> argparse.Namespace:
         "--output-root",
         type=Path,
         required=True,
-        help="Parent directory where {timestamp}_merge_dataset will be created.",
+        help="Parent directory where merge__{timestamp} will be created.",
     )
     parser.add_argument(
         "--dry-run",

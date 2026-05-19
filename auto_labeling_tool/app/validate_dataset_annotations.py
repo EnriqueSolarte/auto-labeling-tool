@@ -239,11 +239,11 @@ def _draw_label(
 
 
 def _draw_status(img, status: str, color: tuple[int, int, int]) -> None:
-    h, _ = img.shape[:2]
+    h, w = img.shape[:2]
     cv2.putText(
         img,
         status,
-        (10, max(30, h - 10)),
+        (max(w//2, 100), 30),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.9,
         color,
