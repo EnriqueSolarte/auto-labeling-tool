@@ -24,7 +24,7 @@ def _parse_args() -> argparse.Namespace:
             "    -d /data/training_data/dataset_a "
             "/data/training_data/dataset_b "
             "/data/training_data/dataset_c \\\n"
-            "    --output-root /data/training_data"
+            "    -o /data/training_data"
         )
     )
     parser.add_argument(
@@ -43,10 +43,17 @@ def _parse_args() -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
     parser.add_argument(
-        "--output-root",
+        "-o",
+        "--output-dir",
+        dest="output_dir",
         type=Path,
-        required=True,
         help="Parent directory where merge__{timestamp} will be created.",
+    )
+    parser.add_argument(
+        "--output-root",
+        dest="output_dir",
+        type=Path,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--dry-run",
@@ -56,6 +63,8 @@ def _parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.dataset is None:
         parser.error("the following arguments are required: -d/--dataset")
+    if args.output_dir is None:
+        parser.error("the following arguments are required: -o/--output-dir")
     return args
 
 
@@ -119,7 +128,7 @@ def _write_data_yaml(output_dir: Path, splits: list[str], nc: int, names: list[s
 
 def _symlink_file(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.symlink_to(src)
+    dst.symlink_to(src.resolve())
 
 
 def _dedupe_rel_path(rel_path: Path, tag: str, index: int) -> Path:
@@ -133,7 +142,10 @@ def main() -> None:
     if dataset_arg is None:
         dataset_arg = args.datasets
     dataset_dirs = [d.expanduser().resolve() for d in dataset_arg]
-    output_root = args.output_root.expanduser().resolve()
+    output_arg = getattr(args, "output_dir", None)
+    if output_arg is None:
+        output_arg = args.output_root
+    output_root = output_arg.expanduser().resolve()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = output_root / f"merge__{timestamp}"
 

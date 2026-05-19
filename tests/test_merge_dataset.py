@@ -63,6 +63,47 @@ def test_merge_dataset_creates_symlinked_dataset_and_dedupes_names(
     )
 
 
+def test_merge_dataset_symlinks_to_resolved_sources(monkeypatch, tmp_path: Path) -> None:
+    source_image = tmp_path / "source" / "frame.jpg"
+    source_label = tmp_path / "source" / "frame.txt"
+    source_image.parent.mkdir()
+    source_image.write_bytes(b"fake image")
+    source_label.write_text("0 0.5 0.5 0.25 0.25\n", encoding="utf-8")
+
+    intermediate_image = tmp_path / "intermediate" / "frame.jpg"
+    intermediate_label = tmp_path / "intermediate" / "frame.txt"
+    intermediate_image.parent.mkdir()
+    intermediate_image.symlink_to(source_image)
+    intermediate_label.symlink_to(source_label)
+
+    dataset = tmp_path / "inputs" / "dataset_a"
+    (dataset / "images" / "train").mkdir(parents=True)
+    (dataset / "labels" / "train").mkdir(parents=True)
+    (dataset / "images" / "train" / "frame.jpg").symlink_to(intermediate_image)
+    (dataset / "labels" / "train" / "frame.txt").symlink_to(intermediate_label)
+    (dataset / "data.yaml").write_text(
+        f"path: {dataset}\ntrain: images/train\nnc: 1\nnames: ['bed']\n",
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "merged"
+    monkeypatch.setattr(
+        merge_dataset,
+        "_parse_args",
+        lambda: argparse.Namespace(
+            datasets=[dataset],
+            output_root=output_root,
+            dry_run=False,
+        ),
+    )
+    monkeypatch.setattr(merge_dataset, "datetime", FrozenDatetime)
+
+    merge_dataset.main()
+
+    output_dir = output_root / "merge__20260519_040000"
+    assert (output_dir / "images" / "train" / "frame.jpg").readlink() == source_image
+    assert (output_dir / "labels" / "train" / "frame.txt").readlink() == source_label
+
+
 def test_merge_dataset_dry_run_creates_no_output(monkeypatch, tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "inputs", "dataset_a")
     output_root = tmp_path / "merged"

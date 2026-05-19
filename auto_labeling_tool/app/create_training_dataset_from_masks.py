@@ -371,7 +371,7 @@ def parse_args() -> argparse.Namespace:
             "  python -m auto_labeling_tool.app.create_training_dataset_from_masks \\\n"
             "      --masks_dir /data/masks \\\n"
             "      --images_dir /data/with_bed \\\n"
-            "      --output-root /data/training_data \\\n"
+            "      -o /data/training_data \\\n"
             "      --label-format bbox"
         )
     )
@@ -388,10 +388,18 @@ def parse_args() -> argparse.Namespace:
         help="Root directory containing RGB images corresponding to the masks.",
     )
     parser.add_argument(
-        "--output-root",
+        "-o",
+        "--output-dir",
+        dest="output_dir",
         type=Path,
         default=Path("/data/training_data"),
         help="Root directory where the training dataset will be created.",
+    )
+    parser.add_argument(
+        "--output-root",
+        dest="output_dir",
+        type=Path,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--val-ratio",
@@ -437,7 +445,10 @@ def main() -> None:
     args = parse_args()
     masks_dir: Path = args.masks_dir.expanduser().resolve()
     images_dir: Path = args.images_dir.expanduser().resolve()
-    output_root: Path = args.output_root.expanduser().resolve()
+    output_arg = getattr(args, "output_dir", None)
+    if output_arg is None:
+        output_arg = args.output_root
+    output_root: Path = output_arg.expanduser().resolve()
 
     _log("Starting dataset creation")
     _log(f"Masks dir:  {masks_dir}")

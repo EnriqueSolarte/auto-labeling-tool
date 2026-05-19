@@ -201,12 +201,12 @@ Merge multiple YOLO datasets into one new dataset directory:
 python3 -m auto_labeling_tool.app.merge_dataset \
   -d /workspace/assets/runs/run_a/datasets/mask-based \
   /workspace/assets/runs/run_b/datasets/mask-based \
-  --output-root /workspace/assets/runs/merged
+  -o /workspace/assets/runs/merged
 ```
 
 The command expects each input dataset to contain `images/<split>/` and
 `labels/<split>/` directories, plus an optional `data.yaml`. It creates a new
-`merge__YYYYMMDD_HHMMSS` directory under `--output-root`, symlinks the images
+`merge__YYYYMMDD_HHMMSS` directory under `--output-dir`, symlinks the images
 and labels, writes a merged `data.yaml`, and renames duplicate filenames with
 the source dataset name. Use `--dry-run` first to preview counts without
 creating files.

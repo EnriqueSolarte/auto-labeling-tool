@@ -161,8 +161,13 @@ def _allocate_counts(total: int, ratios: list[float]) -> list[int]:
     return counts
 
 
-def _move_file(src: Path, dst: Path) -> None:
+def _move_or_relink_file(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_symlink():
+        target = src.resolve()
+        dst.symlink_to(target)
+        src.unlink()
+        return
     shutil.move(str(src), str(dst))
 
 
@@ -224,12 +229,12 @@ def main() -> None:
         for sample in selected:
             src_image = backup_images_root / sample.original_split / sample.rel_image_path
             new_image = images_root / split_name / sample.rel_image_path
-            _move_file(src_image, new_image)
+            _move_or_relink_file(src_image, new_image)
 
             src_label = backup_labels_root / sample.original_split / sample.rel_image_path.with_suffix(".txt")
             if src_label.is_file():
                 new_label = labels_root / split_name / sample.rel_image_path.with_suffix(".txt")
-                _move_file(src_label, new_label)
+                _move_or_relink_file(src_label, new_label)
 
     _log("Preserving unmatched label files in labels/_orphaned/")
     for old_split_dir in sorted([p for p in backup_labels_root.iterdir() if p.is_dir()], key=lambda p: p.name):
@@ -238,7 +243,7 @@ def main() -> None:
                 continue
             rel_label = label_path.relative_to(old_split_dir)
             orphan_dst = labels_root / "_orphaned" / old_split_dir.name / rel_label
-            _move_file(label_path, orphan_dst)
+            _move_or_relink_file(label_path, orphan_dst)
 
     _log("Split manipulation complete")
     
