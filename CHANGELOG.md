@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.0
+
+- Added `auto-label-tool visualize-mask` for interactive, read-only inspection
+  of aggregated mask stacks.
+- Added hard-link-first file creation with confirmed symlink and copy fallbacks.
+- Added durable agent-workspace task and plan records for repository work.
+
 ## v1.1.0
 
 - Added Docker Compose configuration for the auto-labeling development container.

@@ -6,7 +6,7 @@ Utilities in this repository prepare RGB-only image sequences for auto-labeling 
 
 ## Release Status
 
-Current version: `v1.1.0`.
+Current version: `v1.2.0`.
 
 This version centers on the `auto-label-tool` CLI and a config-driven RGB-to-YOLO workflow.
 

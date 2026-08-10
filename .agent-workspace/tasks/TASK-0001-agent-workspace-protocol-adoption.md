@@ -1,6 +1,6 @@
 # TASK-0001: Adopt the agent-workspace protocol
 
-Status: ready-to-merge
+Status: integrated
 
 Owner: Codex
 
@@ -43,7 +43,7 @@ plan, index, and repository rules while preserving the legacy workspace records.
 
 Path: `.agent-workspace/plans/TASK-0001-agent-workspace-protocol-adoption.md`
 
-Current milestone: M2
+Current milestone: M2 (completed)
 
 ## Validation
 
@@ -53,7 +53,8 @@ Current milestone: M2
 - `git diff --cached --check` passed before commit `3f9e4a9`.
 - Commit `3f9e4a9 chore: adopt agent workspace protocol` contains the control
   plane and preserved legacy history.
+- Merged into `main` as merge commit `5fa3508` after user approval.
 
 ## Next action
 
-Request explicit approval to merge `chore/agent-workspace-protocol` into `main`.
+Archive this integrated task during a future workspace-maintenance task.
