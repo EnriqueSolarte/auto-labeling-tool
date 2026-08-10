@@ -218,6 +218,13 @@ def _aggregate(args: argparse.Namespace) -> None:
     )
 
 
+def _visualize_masks(args: argparse.Namespace) -> None:
+    from auto_labeling_tool.app.visualize_masks import visualize_aggregated_masks
+
+    cfg = _load_cli_config(args)
+    visualize_aggregated_masks(cfg.masks_root, cfg.images_dir)
+
+
 def _create_dataset(args: argparse.Namespace) -> None:
     from auto_labeling_tool.app.create_training_dataset_from_masks import (
         LABEL_FORMAT_CHOICES,
@@ -497,6 +504,13 @@ def build_parser() -> argparse.ArgumentParser:
     aggregate = sub.add_parser("aggregate-masks", help="Aggregate mask versions.")
     _add_config_arg(aggregate)
     aggregate.set_defaults(func=_aggregate)
+
+    visualize_masks = sub.add_parser(
+        "visualize-mask",
+        help="Visualize existing aggregated masks without modifying them.",
+    )
+    _add_config_arg(visualize_masks)
+    visualize_masks.set_defaults(func=_visualize_masks)
 
     create_dataset = sub.add_parser("create-dataset", help="Create a YOLO dataset from masks.")
     _add_config_arg(create_dataset)
