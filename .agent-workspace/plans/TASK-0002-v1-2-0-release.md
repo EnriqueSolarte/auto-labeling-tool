@@ -6,7 +6,7 @@ Revision: 1
 
 ### M1: Prepare release metadata and notes
 
-Status: blocked
+Status: completed
 
 Scope: Update the version, changelog, README, and release notes. Document the
 config-version migration requirement.
@@ -14,7 +14,8 @@ config-version migration requirement.
 Validation: Review metadata consistency and referenced documentation paths.
 
 Evidence: `VERSION`, README, CHANGELOG.md, and `release-notes/v1.2.0.md` all
-identify v1.2.0 and document the config-version upgrade path.
+identify v1.2.0 and document the config-version upgrade path. Committed in
+`32fdbb7 chore: prepare v1.2.0 release`.
 
 ### M2: Run release validation
 
@@ -24,13 +25,23 @@ Scope: Install test dependencies, run the full suite, and run focused CLI smoke 
 
 Validation: Record exact commands and outcomes in TASK-0002.
 
-Evidence: 36 tests passed; both CLI help checks passed. The only warning was a
-non-fatal pytest cache permission warning. Docker is unavailable in this
-environment, so `docker/docker_build.sh` remains required before M2 can complete.
+Evidence: `python3 -m pytest` passed (36 tests); `auto-label-tool --help` and
+`auto-label-tool visualize-mask --help` passed. `./docker/docker_build.sh`
+passed with Docker daemon access and built `auto-labeling:dev` as
+`0816f0ebe14abd114f836f420ca9414f7bd9a3e32edc869ec2c9da4ed8a56cf4`.
+
+Closeout: The release metadata and behavior were validated so the release can
+be reviewed with a reproducible package build. The Docker build resolves the
+pinned SAM-2 dependency, installs the project from the repository copy, and
+tags the result `auto-labeling:dev`; it confirmed installed package version
+`1.2.0`. Evidence comprises `python3 -m pytest` (36 passed), both CLI help
+commands, and `./docker/docker_build.sh` (passed). The pytest-cache permission
+warning was non-fatal; the historical mask-fixture smoke check remains excluded
+because its fixture is absent.
 
 ### M3: Review and tag
 
-Status: pending
+Status: in-progress
 
 Scope: Review the release diff and create a local annotated `v1.2.0` tag.
 

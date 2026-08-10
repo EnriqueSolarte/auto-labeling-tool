@@ -1,6 +1,6 @@
 # TASK-0002: Release v1.2.0
 
-Status: blocked
+Status: in-progress
 
 Owner: Codex
 
@@ -41,7 +41,7 @@ Prepare, validate, tag, and document the v1.2.0 release.
 
 Path: `.agent-workspace/plans/TASK-0002-v1-2-0-release.md`
 
-Current milestone: M2
+Current milestone: M3
 
 ## Validation
 
@@ -51,10 +51,32 @@ Current milestone: M2
 - `auto-label-tool --help` and `auto-label-tool visualize-mask --help` passed.
 - The historical `tmp/assets__samples/masks` aggregated-mask fixture is absent,
   so its data-specific smoke check was not run.
-- Docker is not installed in this environment, so the required Docker build
-  check cannot run.
+- `./docker/docker_build.sh`: passed with Docker daemon access; built and tagged
+  `auto-labeling:dev` (image `0816f0ebe14abd114f836f420ca9414f7bd9a3e32edc869ec2c9da4ed8a56cf4`).
 
 ## Next action
 
-Run `docker/docker_build.sh` in a Docker-enabled environment; if it passes,
-resume M3 release review and create the approved local tag.
+Review the release commits and create the local annotated `v1.2.0` tag.
+
+## Handoff
+
+Recorded: 2026-08-10
+
+The release work is committed and the working tree is clean on
+`release/TASK-0002-v1-2-0`. The release commits ahead of `main` are:
+
+- `84af80f fix: resolve sources before hardlinking`
+- `32fdbb7 chore: prepare v1.2.0 release`
+
+Completed evidence:
+
+- `python3 -m pip install -e '.[test]'` installed the package as v1.2.0 and
+  installed pytest.
+- `python3 -m pytest` passed: 36 tests, with only a non-fatal pytest-cache
+  permission warning.
+- `auto-label-tool --help` and `auto-label-tool visualize-mask --help` passed.
+- `VERSION` and installed package metadata report `1.2.0`.
+
+The initial sandboxed Docker attempt lacked access to `/var/run/docker.sock`.
+The approved daemon-access retry passed on 2026-08-10. No `v1.2.0` tag exists,
+and no release branch, tag, or package has been pushed or published.
