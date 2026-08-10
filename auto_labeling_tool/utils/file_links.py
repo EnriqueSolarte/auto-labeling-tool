@@ -55,21 +55,22 @@ def hardlink_or_symlink_or_copy(
     interactive confirmation once per process.
     """
     authorizer = authorizer or _DEFAULT_AUTHORIZER
+    source = src.resolve()
     try:
-        os.link(src, dst)
+        os.link(source, dst)
         return "hardlink"
     except OSError as hardlink_error:
-        if not authorizer.allow_symlink(src, dst, hardlink_error):
+        if not authorizer.allow_symlink(source, dst, hardlink_error):
             raise RuntimeError(
-                f"Hard link unavailable for {src}; symlink fallback was declined."
+                f"Hard link unavailable for {source}; symlink fallback was declined."
             ) from hardlink_error
     try:
-        dst.symlink_to(src.resolve())
+        dst.symlink_to(source)
         return "symlink"
     except OSError as symlink_error:
-        if not authorizer.allow_copy(src, dst, symlink_error):
+        if not authorizer.allow_copy(source, dst, symlink_error):
             raise RuntimeError(
-                f"Symlink unavailable for {src}; copy fallback was declined."
+                f"Symlink unavailable for {source}; copy fallback was declined."
             ) from symlink_error
-        shutil.copy2(src, dst)
+        shutil.copy2(source, dst)
         return "copy"

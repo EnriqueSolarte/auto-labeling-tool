@@ -13,7 +13,7 @@ class FrozenDatetime(datetime):
         return cls(2026, 5, 19, 4, 0, 0)
 
 
-def test_shuffle_dataset_relinks_nested_symlinks_to_resolved_sources(
+def test_shuffle_dataset_hardlinks_nested_symlinks_to_resolved_sources(
     monkeypatch, tmp_path: Path
 ) -> None:
     source_image = tmp_path / "source" / "frame.jpg"
@@ -48,5 +48,5 @@ def test_shuffle_dataset_relinks_nested_symlinks_to_resolved_sources(
 
     shuffle_dataset.main()
 
-    assert (dataset / "images" / "train" / "frame.jpg").readlink() == source_image
-    assert (dataset / "labels" / "train" / "frame.txt").readlink() == source_label
+    assert (dataset / "images" / "train" / "frame.jpg").samefile(source_image)
+    assert (dataset / "labels" / "train" / "frame.txt").samefile(source_label)

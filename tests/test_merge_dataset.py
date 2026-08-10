@@ -31,7 +31,7 @@ def _write_dataset(root: Path, name: str, image_name: str = "frame.jpg") -> Path
     return dataset_dir
 
 
-def test_merge_dataset_creates_symlinked_dataset_and_dedupes_names(
+def test_merge_dataset_creates_hardlinked_dataset_and_dedupes_names(
     monkeypatch, tmp_path: Path
 ) -> None:
     dataset_a = _write_dataset(tmp_path / "inputs", "dataset_a")
@@ -51,10 +51,16 @@ def test_merge_dataset_creates_symlinked_dataset_and_dedupes_names(
     merge_dataset.main()
 
     output_dir = output_root / "merge__20260519_040000"
-    assert (output_dir / "images" / "train" / "frame.jpg").is_symlink()
-    assert (output_dir / "labels" / "train" / "frame.txt").is_symlink()
-    assert (output_dir / "images" / "train" / "frame__dataset_b.jpg").is_symlink()
-    assert (output_dir / "labels" / "train" / "frame__dataset_b.txt").is_symlink()
+    output_image = output_dir / "images" / "train" / "frame.jpg"
+    output_label = output_dir / "labels" / "train" / "frame.txt"
+    duplicate_image = output_dir / "images" / "train" / "frame__dataset_b.jpg"
+    duplicate_label = output_dir / "labels" / "train" / "frame__dataset_b.txt"
+    assert not output_image.is_symlink()
+    assert not output_label.is_symlink()
+    assert output_image.samefile(dataset_a / "images" / "train" / "frame.jpg")
+    assert output_label.samefile(dataset_a / "labels" / "train" / "frame.txt")
+    assert duplicate_image.samefile(dataset_b / "images" / "train" / "frame.jpg")
+    assert duplicate_label.samefile(dataset_b / "labels" / "train" / "frame.txt")
     assert (output_dir / "data.yaml").read_text(encoding="utf-8") == (
         f"path: {output_dir}\n"
         "train: images/train\n"
@@ -63,7 +69,7 @@ def test_merge_dataset_creates_symlinked_dataset_and_dedupes_names(
     )
 
 
-def test_merge_dataset_symlinks_to_resolved_sources(monkeypatch, tmp_path: Path) -> None:
+def test_merge_dataset_hardlinks_resolved_sources(monkeypatch, tmp_path: Path) -> None:
     source_image = tmp_path / "source" / "frame.jpg"
     source_label = tmp_path / "source" / "frame.txt"
     source_image.parent.mkdir()
@@ -100,8 +106,8 @@ def test_merge_dataset_symlinks_to_resolved_sources(monkeypatch, tmp_path: Path)
     merge_dataset.main()
 
     output_dir = output_root / "merge__20260519_040000"
-    assert (output_dir / "images" / "train" / "frame.jpg").readlink() == source_image
-    assert (output_dir / "labels" / "train" / "frame.txt").readlink() == source_label
+    assert (output_dir / "images" / "train" / "frame.jpg").samefile(source_image)
+    assert (output_dir / "labels" / "train" / "frame.txt").samefile(source_label)
 
 
 def test_merge_dataset_dry_run_creates_no_output(monkeypatch, tmp_path: Path) -> None:
