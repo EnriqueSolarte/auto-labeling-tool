@@ -59,6 +59,7 @@ cython_debug/
 .agent-workspace/
 /data/
 /assets/
+/tmp
 */masks/
 */datasets/
 */train_data/

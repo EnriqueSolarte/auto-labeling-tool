@@ -1,12 +1,21 @@
 #!/bin/bash
 # set -euo pipefail
+
+# this directory
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ENV_FILE="${DIR}/env"
+
+if [[ ! -r "${ENV_FILE}" ]]; then
+    echo "Error: required development environment file is not readable: ${ENV_FILE}" >&2
+    exit 1
+fi
+
+source "${ENV_FILE}"
+
 xhost +local:
 
 IMAGE="auto-labeling:dev"
 CONTAINER_NAME="auto-labeling-tool-dev"
-
-# this directory
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 install_completion() {
     docker exec "${CONTAINER_NAME}" bash -lc 'auto-label-tool install-completion'
@@ -27,12 +36,11 @@ else
         --env="DISPLAY=${DISPLAY}" \
         --device=/dev/dri \
         --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-        --volume="/media/q200/kike/docker_ws/docker_utils/:/docker_utils" \
-        --volume="/media/q200/models_weights:/models" \
-        --volume="/media/v1-data/panda_ai_dataset:/data/panda" \
-        --volume="/media/v1-data/hospital-bishop-data:/data/bishop" \
+        --volume="${MODELS}:/models" \
+        --volume="${DATA}:/data" \
+        --volume="${DOCKER_UTILS}:/docker_utils" \
+        --volume="${AGENT_SKILLS}:/agent-skills" \
         --volume="${DIR}/../:/workspace" \
-        --volume="/media/q200/kike/agent-skills:/agent-skills" \
         -w /workspace \
         "${IMAGE}"
 fi

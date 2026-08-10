@@ -1,0 +1,4 @@
+AGENT_SKILLS=/home/kike/agent-skills
+DOCKER_UTILS=/media/q200/kike/docker_ws/docker_utils
+DATA=/media/v1-data/panda_ai_dataset
+MODELS=/media/q200/models_weights
