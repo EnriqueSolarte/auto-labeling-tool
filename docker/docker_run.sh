@@ -1,5 +1,42 @@
 #!/bin/bash
 # set -euo pipefail
+
+usage() {
+    echo "Usage: $(basename "$0") --data <host-data-directory>" >&2
+}
+
+DATA=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -d|--data)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: $1 requires a directory path." >&2
+                usage
+                exit 2
+            fi
+            DATA="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: unknown argument: $1" >&2
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+if [[ -z "${DATA}" ]]; then
+    echo "Error: --data/-d is required." >&2
+    usage
+    exit 2
+fi
+
+export DATA
+
 xhost +local:
 
 IMAGE="auto-labeling:dev"
@@ -27,10 +64,8 @@ else
         --env="DISPLAY=${DISPLAY}" \
         --device=/dev/dri \
         --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-        --volume="/media/q200/kike/docker_ws/docker_utils/:/docker_utils" \
-        --volume="/media/q200/models_weights:/models" \
-        --volume="/media/v1-data/panda_ai_dataset:/data/panda" \
-        --volume="/media/v1-data/hospital-bishop-data:/data/bishop" \
+        --volume="${DATA}:/data" \
+        --env="DATA=${DATA}" \
         -w /workspace \
         "${IMAGE}"
 fi
