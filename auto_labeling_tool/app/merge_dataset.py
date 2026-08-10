@@ -127,8 +127,10 @@ def _write_data_yaml(output_dir: Path, splits: list[str], nc: int, names: list[s
 
 
 def _symlink_file(src: Path, dst: Path) -> None:
+    from auto_labeling_tool.utils.file_links import hardlink_or_symlink_or_copy
+
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.symlink_to(src.resolve())
+    hardlink_or_symlink_or_copy(src, dst)
 
 
 def _dedupe_rel_path(rel_path: Path, tag: str, index: int) -> Path:

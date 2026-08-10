@@ -162,10 +162,12 @@ def _allocate_counts(total: int, ratios: list[float]) -> list[int]:
 
 
 def _move_or_relink_file(src: Path, dst: Path) -> None:
+    from auto_labeling_tool.utils.file_links import hardlink_or_symlink_or_copy
+
     dst.parent.mkdir(parents=True, exist_ok=True)
     if src.is_symlink():
         target = src.resolve()
-        dst.symlink_to(target)
+        hardlink_or_symlink_or_copy(target, dst)
         src.unlink()
         return
     shutil.move(str(src), str(dst))

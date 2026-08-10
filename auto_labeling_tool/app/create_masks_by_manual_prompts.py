@@ -31,6 +31,7 @@ from auto_labeling_tool.sam2.propagate_sam2_lkt import (
     track_xy,
 )
 from auto_labeling_tool.utils.lk_tracker import load_image_sequence
+from auto_labeling_tool.utils.file_links import hardlink_or_symlink_or_copy
 
 
 def _save_mask(mask: np.ndarray, out_path: Path) -> bool:
@@ -199,10 +200,7 @@ def _prepare_sam2_video_dir(
     width = max(4, len(str(len(frame_paths) - 1)))
     for idx, src in enumerate(frame_paths):
         dst = tmp_dir / f"{idx:0{width}d}{src.suffix.lower()}"
-        try:
-            dst.symlink_to(src.resolve())
-        except OSError:
-            shutil.copy2(src, dst)
+        hardlink_or_symlink_or_copy(src, dst)
 
     print(f"[sam2] Normalized frame names under {tmp_dir}")
     return tmp_dir, tmp_dir

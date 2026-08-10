@@ -272,16 +272,12 @@ def _split_train_val(samples: Sequence[Sample], val_ratio: float, seed: int) -> 
 
 
 def _symlink_safe(src: Path, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if dst.is_symlink() or dst.exists():
-            dst.unlink()
-        dst.symlink_to(src)
-    except OSError:
-        # Fallback to copying if symlinks are not supported
-        import shutil
+    from auto_labeling_tool.utils.file_links import hardlink_or_symlink_or_copy
 
-        shutil.copy2(src, dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.is_symlink() or dst.exists():
+        dst.unlink()
+    hardlink_or_symlink_or_copy(src, dst)
 
 
 def _write_labels(
