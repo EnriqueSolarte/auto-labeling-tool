@@ -56,7 +56,6 @@ venv.bak/
 cython_debug/
 
 # Project-specific generated data
-.agent-workspace/
 /data/
 /assets/
 /tmp
