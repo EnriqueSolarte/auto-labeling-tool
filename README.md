@@ -2,6 +2,8 @@
 
 Utilities in this repository prepare RGB-only image sequences for auto-labeling and YOLO dataset creation.
 
+![Auto-labeling tool teaser](assets/teaser.gif)
+
 ## Release Status
 
 Current version: `v1.1.0`.
@@ -97,6 +99,7 @@ auto-label-tool --help
 auto-label-tool create-config -d /workspace/assets/samples -o /workspace/assets/runs
 auto-label-tool create-masks -c /workspace/assets/runs/assets__samples/cfg.yaml
 auto-label-tool aggregate-masks -c /workspace/assets/runs/assets__samples/cfg.yaml
+auto-label-tool visualize-mask -c /workspace/assets/runs/assets__samples/cfg.yaml
 auto-label-tool create-dataset -c /workspace/assets/runs/assets__samples/cfg.yaml
 auto-label-tool validate -d /workspace/assets/runs/assets__samples/datasets/bbx-based --split train
 ```
@@ -206,10 +209,11 @@ python3 -m auto_labeling_tool.app.merge_dataset \
 
 The command expects each input dataset to contain `images/<split>/` and
 `labels/<split>/` directories, plus an optional `data.yaml`. It creates a new
-`merge__YYYYMMDD_HHMMSS` directory under `--output-dir`, symlinks the images
-and labels, writes a merged `data.yaml`, and renames duplicate filenames with
-the source dataset name. Use `--dry-run` first to preview counts without
-creating files.
+`merge__YYYYMMDD_HHMMSS` directory under `--output-dir`, links the images and
+labels, writes a merged `data.yaml`, and renames duplicate filenames with the
+source dataset name. It uses hard links when possible; if a hard link or
+symlink cannot be created, it asks before using the next fallback. Use
+`--dry-run` first to preview counts without creating files.
 
 ### Validate Labels
 
@@ -221,6 +225,20 @@ when the split has no non-empty labels yet.
 auto-label-tool validate \
   -d /workspace/assets/runs/assets__samples/datasets/mask-based \
   --split train
+```
+
+### Visualize Aggregated Masks
+
+To inspect existing `average_mask/*.npy` files without rerunning aggregation,
+use the config-driven viewer. It supports both `masks/average_mask` and
+`masks/<episode>/average_mask` layouts, overlays each object in a distinct color
+on a matching configured RGB image when available, and otherwise shows the mask
+alone. This command requires a graphical OpenCV display. Press `n`, Space, or
+the right arrow to advance; press `p` or the left arrow to go back; press `q` or
+Esc to close.
+
+```bash
+auto-label-tool visualize-mask -c /workspace/assets/runs/assets__samples/cfg.yaml
 ```
 
 ### Visualize Labels
