@@ -41,11 +41,18 @@ because its fixture is absent.
 
 ### M3: Review and tag
 
-Status: in-progress
+Status: completed
 
 Scope: Review the release diff and create a local annotated `v1.2.0` tag.
 
 Dependency: M1 and M2 completed.
+
+Closeout: Reviewed the complete `main..HEAD` release series (`84af80f`,
+`32fdbb7`, and `5de0ccc`) with `git diff --check`; it passed without whitespace
+errors. The reviewed state preserves the v1.2.0 metadata, release notes,
+hardlink source-resolution fix, tests, and release-validation evidence. A local
+annotated `v1.2.0` tag will point to the dedicated M3 closeout commit. No merge,
+push, package publication, or absent-fixture smoke check is included.
 
 ## Change log
 

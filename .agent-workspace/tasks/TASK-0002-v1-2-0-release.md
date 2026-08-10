@@ -1,6 +1,6 @@
 # TASK-0002: Release v1.2.0
 
-Status: in-progress
+Status: ready-to-merge
 
 Owner: Codex
 
@@ -41,7 +41,7 @@ Prepare, validate, tag, and document the v1.2.0 release.
 
 Path: `.agent-workspace/plans/TASK-0002-v1-2-0-release.md`
 
-Current milestone: M3
+Current milestone: M3 (completed)
 
 ## Validation
 
@@ -56,7 +56,8 @@ Current milestone: M3
 
 ## Next action
 
-Review the release commits and create the local annotated `v1.2.0` tag.
+Await explicit approval to merge the reviewed, locally tagged release branch into
+`main`; do not push or publish.
 
 ## Handoff
 
